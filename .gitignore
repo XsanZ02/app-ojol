@@ -1,0 +1,23 @@
+# Local environment and credentials
+.env*
+!.env.example
+*.pem
+*.key
+*.p12
+.certs/
+
+# Dependencies and generated output
+node_modules/
+.next/
+backend/target/
+backend/data/
+*.tsbuildinfo
+
+# Local editor settings
+.vscode/
+
+# Local backups and diagnostic logs
+/backup/
+/backups/
+hs_err_pid*.log
+replay_pid*.log

@@ -1,0 +1,2 @@
+ALTER TABLE driver_profiles
+    ADD COLUMN is_online BOOLEAN NOT NULL DEFAULT FALSE;
