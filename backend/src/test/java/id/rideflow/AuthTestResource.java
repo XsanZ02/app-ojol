@@ -1,7 +1,10 @@
 package id.rideflow;
 
 import io.quarkus.test.common.QuarkusTestResourceLifecycleManager;
+import com.sun.net.httpserver.HttpServer;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.HashMap;
@@ -18,6 +21,7 @@ public class AuthTestResource implements QuarkusTestResourceLifecycleManager {
     private static final long DATABASE_STARTUP_TIMEOUT_SECONDS = 90;
 
     private String containerName;
+    private HttpServer routeServer;
 
     @Override
     public Map<String, String> start() {
@@ -35,6 +39,27 @@ public class AuthTestResource implements QuarkusTestResourceLifecycleManager {
             int port = mappedPort();
             String jdbcUrl = "jdbc:postgresql://127.0.0.1:" + port + "/rideflow_auth_test";
             awaitDatabaseReady(jdbcUrl, databasePassword);
+            routeServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+            routeServer.createContext("/route", exchange -> {
+                String request = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                boolean fail = java.util.regex.Pattern
+                        .compile("\"lat\"\\s*:\\s*0(?:\\.0+)?(?:\\s*[,}])")
+                        .matcher(request)
+                        .find();
+                String body = fail
+                        ? "{\"error_code\":154,\"error\":\"test provider failure\"}"
+                        : """
+                                {"trip":{"summary":{"length":4.8,"time":900},
+                                  "legs":[{"shape":"_p~iF~ps|U_ulLnnqC_mqNvxq`@"}]}}
+                                """;
+                byte[] response = body.getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().set("Content-Type", "application/json");
+                exchange.sendResponseHeaders(fail ? 503 : 200, response.length);
+                try (var output = exchange.getResponseBody()) {
+                    output.write(response);
+                }
+            });
+            routeServer.start();
             Map<String, String> config = new HashMap<>();
             config.put("quarkus.datasource.db-kind", "postgresql");
             config.put("quarkus.datasource.jdbc.url", jdbcUrl);
@@ -43,6 +68,10 @@ public class AuthTestResource implements QuarkusTestResourceLifecycleManager {
             config.put("quarkus.flyway.migrate-at-start", "true");
             config.put("quarkus.flyway.clean-disabled", "true");
             config.put("rideflow.jwt.ttl-seconds", "900");
+            config.put(
+                    "rideflow.routing.valhalla-url",
+                    "http://127.0.0.1:" + routeServer.getAddress().getPort() + "/route");
+            config.put("rideflow.routing.timeout-seconds", "2");
             return config;
         } catch (Exception exception) {
             stop();
@@ -52,6 +81,10 @@ public class AuthTestResource implements QuarkusTestResourceLifecycleManager {
 
     @Override
     public void stop() {
+        if (routeServer != null) {
+            routeServer.stop(0);
+            routeServer = null;
+        }
         if (containerName != null) {
             try {
                 runDocker("stop", "--time", "2", containerName);

@@ -28,7 +28,7 @@ export const MobileBottomNavigation: React.FC = () => {
 
   const driverItems = [
     { label: "Beranda", href: "/driver/dashboard", icon: LayoutDashboard },
-    { label: "Order", href: "/driver/orders", icon: Radio },
+    { label: "Pesanan", href: "/driver/orders", icon: Radio },
     { label: "Aktif", href: "/driver/trips/active", icon: Car },
     { label: "Riwayat", href: "/driver/trips", icon: History },
     { label: "Profil", href: "/driver/profile", icon: User },
@@ -88,4 +88,3 @@ export const MobileBottomNavigation: React.FC = () => {
     </nav>
   );
 };
-

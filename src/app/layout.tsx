@@ -1,12 +1,13 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "leaflet/dist/leaflet.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ToastProvider } from "@/components/ui/ToastNotification";
 
 export const metadata: Metadata = {
-  title: "RideFlow — Modern Skeuomorphic Ride-Hailing",
+  title: "RideFlow — Perjalanan Nyaman di Bali",
   description:
-    "Aplikasi ride-hailing modern skeuomorfik untuk pelanggan dan mitra pengemudi di Bali.",
+    "Pesan perjalanan, pantau perjalanan aktif, dan kelola akun RideFlow Anda.",
 };
 
 export default function RootLayout({
@@ -24,4 +25,3 @@ export default function RootLayout({
     </html>
   );
 }
-

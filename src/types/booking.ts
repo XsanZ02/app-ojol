@@ -39,9 +39,14 @@ export interface Booking {
   pickup: LocationPoint;
   destination: LocationPoint;
   tripNotes?: string;
-  estimatedDistanceKm: number;
-  estimatedDurationMin: number;
+  estimatedDistanceKm: number | null;
+  routeDistanceMeters?: number | null;
+  estimatedDurationMin: number | null;
+  estimatedDurationSeconds?: number | null;
   estimatedFare: number;
+  routingProvider?: string | null;
+  routeGeometry?: string | null;
+  fareConfigVersion?: string | null;
   finalFare?: number;
   currencyCode?: string;
   status: BookingStatus;
@@ -64,13 +69,14 @@ export interface BookingRequest {
   tripNotes?: string;
 }
 
-export interface FareEstimate {
+export interface RouteEstimate {
   vehicleType: VehicleType;
-  vehicleLabel: string;
-  vehicleDescription: string;
-  estimatedFare: number;
+  distanceMeters: number;
   distanceKm: number;
-  durationMin: number;
-  baseFare: number;
-  ratePerKm: number;
+  durationSeconds: number;
+  estimatedFare: number;
+  currency: string;
+  fareConfigVersion: string;
+  routingProvider: string;
+  routeGeometry: string;
 }

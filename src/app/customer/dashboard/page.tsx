@@ -6,12 +6,13 @@ import { useAuth } from "@/lib/auth-context";
 import { SurfaceCard } from "@/components/ui/SurfaceCard";
 import { TactileButton } from "@/components/ui/TactileButton";
 import { InsetInput } from "@/components/ui/InsetInput";
-import { IllustrativeMap } from "@/components/booking/IllustrativeMap";
+import { RouteMap } from "@/components/booking/RouteMap";
 import { BookingCard } from "@/components/booking/BookingCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { MOCK_LOCATIONS } from "@/lib/mock-data";
 import { bookingsApi } from "@/lib/api";
 import { Booking, LocationPoint } from "@/types/booking";
+import { getStatusLabel } from "@/lib/utils";
 import {
   MapPin,
   Navigation,
@@ -37,7 +38,7 @@ export default function CustomerDashboardPage() {
   const [myBookings, setMyBookings] = useState<Booking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
 
-  // Find corresponding location points for illustrative map
+  // Find corresponding location points for the route map
   const pickupLocation: LocationPoint = MOCK_LOCATIONS.find(
     (l) => l.name === pickupText
   ) || {
@@ -137,13 +138,13 @@ export default function CustomerDashboardPage() {
               </div>
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-bold bg-blue-500/30 text-blue-200 uppercase tracking-wider mb-1">
-                  <span>Trip Berlangsung: {activeBooking.id}</span>
+                  <span>Perjalanan aktif: {activeBooking.id}</span>
                 </div>
                 <h3 className="text-base font-bold text-white">
                   Menuju {activeBooking.destination.name}
                 </h3>
                 <p className="text-xs text-blue-200 mt-0.5">
-                  Status: {activeBooking.status} • Driver:{" "}
+                  Status: {getStatusLabel(activeBooking.status)} • Mitra pengemudi:{" "}
                   {activeBooking.driverName || "Mencari pengemudi..."}
                 </p>
               </div>
@@ -252,9 +253,9 @@ export default function CustomerDashboardPage() {
             </SurfaceCard>
           </div>
 
-          {/* Illustrative Map Panel */}
+          {/* OpenStreetMap Panel */}
           <div className="lg:col-span-6 flex flex-col">
-            <IllustrativeMap
+            <RouteMap
               pickup={pickupLocation}
               destination={destLocation}
               className="h-full min-h-[300px]"
@@ -308,4 +309,3 @@ export default function CustomerDashboardPage() {
     </AppLayout>
   );
 }
-

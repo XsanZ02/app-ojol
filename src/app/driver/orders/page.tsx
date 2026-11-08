@@ -1,14 +1,15 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth-context";
 import { SurfaceCard } from "@/components/ui/SurfaceCard";
 import { TactileButton } from "@/components/ui/TactileButton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { IllustrativeMap } from "@/components/booking/IllustrativeMap";
+import { RouteMap } from "@/components/booking/RouteMap";
 import { bookingsApi, driverApi } from "@/lib/api";
 import { AuthApiError } from "@/lib/auth-api";
+import type { EventStreamConnectionState } from "@/lib/auth-api";
 import { Booking } from "@/types/booking";
 import { formatIDR, formatDateTime } from "@/lib/utils";
 import { useToast } from "@/components/ui/ToastNotification";
@@ -36,45 +37,65 @@ export default function DriverOrdersPage() {
   const [isAcceptingId, setIsAcceptingId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [connectionState, setConnectionState] =
+    useState<EventStreamConnectionState>("connecting");
+  const fetchSequence = useRef(0);
 
   const getEligibilityErrorMessage = useCallback((error: unknown): string => {
     if (
       error instanceof AuthApiError &&
       (error.status === 403 || error.code === "driver_not_eligible")
     ) {
-      return "Anda belum memenuhi syarat untuk menerima order. Lengkapi profil, pastikan kendaraan Anda sudah diverifikasi, dan aktifkan status ONLINE sebelum melihat daftar pesanan.";
+      return "Anda belum dapat menerima pesanan. Lengkapi profil, pastikan kendaraan telah diverifikasi, lalu aktifkan status tersedia.";
     }
     return error instanceof Error ? error.message : "Pesanan tidak dapat dimuat.";
   }, []);
 
   const fetchOrders = useCallback(async () => {
+    const requestSequence = ++fetchSequence.current;
     setLoadError(null);
     try {
       const data = await bookingsApi.getAvailableBookings();
+      if (requestSequence !== fetchSequence.current) return;
       setOrders(data);
-      if (data.length > 0 && !selectedOrder) {
-        setSelectedOrder(data[0]);
-      }
+      setSelectedOrder((current) =>
+        data.find((order) => order.id === current?.id) ?? data[0] ?? null
+      );
     } catch (error) {
-      setLoadError(getEligibilityErrorMessage(error));
+      if (requestSequence === fetchSequence.current) {
+        setLoadError(getEligibilityErrorMessage(error));
+      }
     } finally {
-      setIsLoading(false);
+      if (requestSequence === fetchSequence.current) setIsLoading(false);
     }
-  }, [getEligibilityErrorMessage, selectedOrder]);
+  }, [getEligibilityErrorMessage]);
 
   useEffect(() => {
     fetchOrders();
   }, [fetchOrders]);
 
+  useEffect(() => {
+    return driverApi.subscribeToAvailableOrderUpdates(
+      () => {
+        void fetchOrders();
+      },
+      (state) => {
+        setConnectionState(state);
+        if (state === "connected") void fetchOrders();
+      },
+      (error) => showToast(error.message, "error")
+    );
+  }, [fetchOrders, showToast]);
+
   const handleAcceptOrder = async (bookingId: string) => {
     setIsAcceptingId(bookingId);
     try {
       if (!(await driverApi.getOnlineStatus())) {
-        showToast("Aktifkan status ONLINE di dashboard sebelum menerima pesanan.", "error");
+        showToast("Aktifkan status tersedia di beranda sebelum menerima pesanan.", "error");
         return;
       }
       const accepted = await bookingsApi.accept(bookingId);
-      showToast(`Pesanan ${accepted.id} berhasil diterima! Mengalihkan ke perjalanan aktif...`, "success");
+      showToast(`Pesanan ${accepted.id} berhasil diterima. Membuka perjalanan aktif...`, "success");
       router.push("/driver/trips/active");
     } catch (error) {
       showToast(
@@ -94,7 +115,7 @@ export default function DriverOrdersPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-extrabold text-rf-navy">
-                Pesanan Masuk (Radar Order)
+                Pesanan Masuk
               </h1>
               <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-rf-blue">
                 {orders.length} Permintaan
@@ -102,6 +123,22 @@ export default function DriverOrdersPage() {
             </div>
             <p className="text-xs text-rf-text-secondary mt-0.5">
               Pesanan siap jemput di wilayah Denpasar, Renon, Sanur, dan Panjer
+            </p>
+            <p
+              className={`mt-1 text-[11px] font-medium ${
+                connectionState === "connected"
+                  ? "text-emerald-700"
+                  : "text-amber-700"
+              }`}
+              aria-live="polite"
+            >
+              {connectionState === "connected"
+                ? "Notifikasi pesanan langsung aktif"
+                : connectionState === "reconnecting"
+                  ? "Menyambungkan ulang notifikasi..."
+                  : connectionState === "disconnected"
+                    ? "Koneksi notifikasi terhenti"
+                    : "Menghubungkan notifikasi langsung..."}
             </p>
           </div>
         </div>
@@ -167,7 +204,12 @@ export default function DriverOrdersPage() {
                         </span>
                         <span className="text-slate-400">•</span>
                         <span className="text-slate-500 font-medium">
-                          {order.estimatedDistanceKm} km (~{order.estimatedDurationMin} mnt)
+                          {order.estimatedDistanceKm === null
+                            ? "Jarak belum tersedia"
+                            : `${order.estimatedDistanceKm.toFixed(1)} km`}
+                          {order.estimatedDurationMin === null
+                            ? ""
+                            : ` (~${order.estimatedDurationMin} mnt)`}
                         </span>
                       </div>
 
@@ -238,11 +280,12 @@ export default function DriverOrdersPage() {
               })}
             </div>
 
-            {/* Illustrative Map & Selected Order Focus (Right Column) */}
+            {/* Map & Selected Order Focus (Right Column) */}
             <div className="lg:col-span-5 space-y-4">
-              <IllustrativeMap
+              <RouteMap
                 pickup={selectedOrder?.pickup}
                 destination={selectedOrder?.destination}
+                routeGeometry={selectedOrder?.routeGeometry}
                 className="h-64"
               />
 
@@ -257,13 +300,17 @@ export default function DriverOrdersPage() {
                     <div className="flex justify-between">
                       <span className="text-slate-500">Jarak Tempuh:</span>
                       <span className="font-bold text-rf-navy">
-                        {selectedOrder.estimatedDistanceKm} km
+                        {selectedOrder.estimatedDistanceKm === null
+                          ? "Belum tersedia"
+                          : `${selectedOrder.estimatedDistanceKm.toFixed(1)} km`}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-slate-500">Perkiraan Durasi:</span>
                       <span className="font-bold text-rf-navy">
-                        ± {selectedOrder.estimatedDurationMin} menit
+                        {selectedOrder.estimatedDurationMin === null
+                          ? "Belum tersedia"
+                          : `± ${selectedOrder.estimatedDurationMin} menit`}
                       </span>
                     </div>
                     <div className="flex justify-between">

@@ -233,7 +233,7 @@ class DriverResourceTest {
     }
 
     @Test
-    void duplicatePlateReturnsGenericConflict() {
+    void duplicatePlateCannotBeRegisteredForAnotherVehicleType() {
         String firstDriver = activeDriverToken();
         String secondDriver = activeDriverToken();
         String plate = uniquePlate();
@@ -248,12 +248,48 @@ class DriverResourceTest {
         given()
                 .auth().oauth2(secondDriver)
                 .contentType("application/json")
-                .body(vehicleBody(plate.toLowerCase(java.util.Locale.ROOT), ""))
+                .body(vehicleBody(plate.toLowerCase(java.util.Locale.ROOT), "", "MOBIL"))
                 .when().post("/drivers/me/vehicles")
                 .then()
                 .statusCode(409)
-                .body("message", equalTo("Vehicle could not be registered"))
+                .body("message", equalTo(
+                        "Nomor plat ini sudah terdaftar. Periksa kembali plat kendaraan yang dimasukkan."))
+                .body("code", equalTo("vehicle_plate_conflict"))
                 .body("message", not(org.hamcrest.Matchers.containsString(plate)));
+    }
+
+    @Test
+    void driverCanRegisterCarWithDistinctPlateAfterMotorcycle() {
+        String token = activeDriverToken();
+        String motorPlate = uniquePlate();
+        String carPlate = uniquePlate();
+
+        given()
+                .auth().oauth2(token)
+                .contentType("application/json")
+                .body(vehicleBody(motorPlate, ""))
+                .when().post("/drivers/me/vehicles")
+                .then()
+                .statusCode(201)
+                .body("vehicleType", equalTo("MOTOR"));
+
+        given()
+                .auth().oauth2(token)
+                .contentType("application/json")
+                .body(vehicleBody(carPlate, "", "MOBIL"))
+                .when().post("/drivers/me/vehicles")
+                .then()
+                .statusCode(201)
+                .body("vehicleType", equalTo("MOBIL"))
+                .body("vehiclePlate", equalTo(carPlate))
+                .body("verificationStatus", equalTo("pending"));
+
+        given()
+                .auth().oauth2(token)
+                .when().get("/drivers/me/vehicles")
+                .then()
+                .statusCode(200)
+                .body("vehicles", hasSize(2));
     }
 
     @Test
@@ -587,6 +623,11 @@ class DriverResourceTest {
         long driverId = userIdFromToken(driverToken);
         String customerToken = registerAccount("CUSTOMER");
         long riderId = userIdFromToken(customerToken);
+        String passengerPhone = "+628" + riderId;
+        executeUpdate(
+                "UPDATE users SET full_name = 'Rina Penumpang', phone_e164 = '"
+                        + passengerPhone + "' WHERE id = ?",
+                riderId);
         long vehicleId = insertVerifiedActiveVehicle(driverId);
         long tripId = insertActiveTrip(riderId, driverId, vehicleId);
 
@@ -596,12 +637,21 @@ class DriverResourceTest {
                 .then()
                 .statusCode(200)
                 .body("id", equalTo(Long.toString(tripId)))
-                .body("status", equalTo("ACCEPTED"));
+                .body("status", equalTo("ACCEPTED"))
+                .body("customerId", equalTo(Long.toString(riderId)))
+                .body("customerName", equalTo("Rina Penumpang"))
+                .body("customerPhone", equalTo(passengerPhone));
 
+        String otherDriverToken = registerAccount("DRIVER");
         given()
-                .auth().oauth2(registerAccount("DRIVER"))
+                .auth().oauth2(otherDriverToken)
                 .when().get("/drivers/me/trips/active")
                 .then().statusCode(204);
+
+        given()
+                .auth().oauth2(otherDriverToken)
+                .when().get("/trips/" + tripId)
+                .then().statusCode(404);
     }
 
     private String activeDriverToken() {
@@ -761,15 +811,19 @@ class DriverResourceTest {
     }
 
     private static String vehicleBody(String plate, String extraProperties) {
+        return vehicleBody(plate, extraProperties, "MOTOR");
+    }
+
+    private static String vehicleBody(String plate, String extraProperties, String vehicleType) {
         return """
                 {
-                  "vehicleType": "MOTOR",
+                  "vehicleType": "%s",
                   "vehiclePlate": "%s",
                   "make": "Honda",
                   "model": "Vario 160",
                   "color": "Black"%s
                 }
-                """.formatted(plate, extraProperties);
+                """.formatted(vehicleType, plate, extraProperties);
     }
 
     private static String uniquePlate() {

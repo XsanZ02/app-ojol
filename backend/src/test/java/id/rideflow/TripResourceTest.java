@@ -51,7 +51,11 @@ class TripResourceTest {
                 .statusCode(201)
                 .body("status", equalTo("PENDING"))
                 .body("vehicleType", equalTo("MOTOR"))
-                .body("estimatedFare", equalTo(17500.0f))
+                .body("estimatedFare", equalTo(14600.0f))
+                .body("routeDistanceMeters", equalTo(4800))
+                .body("estimatedDurationSeconds", equalTo(900))
+                .body("routingProvider", equalTo("valhalla:motor_scooter"))
+                .body("fareConfigVersion", equalTo("demo-v2-vehicle"))
                 .body("id", matchesPattern("\\d+"))
                 .body("currencyCode", equalTo("IDR"))
                 .body("pickup.address", equalTo("Pickup point"))
@@ -60,6 +64,7 @@ class TripResourceTest {
                 .body("statusHistory[0].note", nullValue());
 
         String tripId = response.jsonPath().getString("id");
+        assertStoredRouteSnapshot(Long.parseLong(tripId), "motorcycle", 14600, 5000, 2000, 8000);
         given()
                 .auth().oauth2(customerToken)
                 .when().get("/trips/me")
@@ -76,6 +81,150 @@ class TripResourceTest {
                 .body("id", equalTo(tripId))
                 .body("status", equalTo("PENDING"))
                 .body("pickup.address", equalTo("Pickup point"));
+    }
+
+    @Test
+    void routeEstimateUsesRoadDistanceAndDoesNotCreateAnOrder() {
+        String customerToken = registerAccount("CUSTOMER");
+
+        given()
+                .auth().oauth2(customerToken)
+                .contentType("application/json")
+                .body("""
+                        {
+                          "pickupLatitude":-8.6834,
+                          "pickupLongitude":115.2289,
+                          "destinationLatitude":-8.6755,
+                          "destinationLongitude":115.2635,
+                          "vehicleType":"MOTOR"
+                        }
+                        """)
+                .when().post("/routes/estimate")
+                .then()
+                .statusCode(200)
+                .body("distanceMeters", equalTo(4800))
+                .body("durationSeconds", equalTo(900))
+                .body("estimatedFare", equalTo(14600.0f))
+                .body("currency", equalTo("IDR"))
+                .body("routingProvider", equalTo("valhalla:motor_scooter"))
+                .body("routeGeometry", not(""));
+
+        given()
+                .auth().oauth2(customerToken)
+                .contentType("application/json")
+                .body("""
+                        {
+                          "pickupLatitude":-8.6834,
+                          "pickupLongitude":115.2289,
+                          "destinationLatitude":-8.6755,
+                          "destinationLongitude":115.2635,
+                          "vehicleType":"MOBIL"
+                        }
+                        """)
+                .when().post("/routes/estimate")
+                .then()
+                .statusCode(200)
+                .body("distanceMeters", equalTo(4800))
+                .body("estimatedFare", equalTo(24800.0f))
+                .body("currency", equalTo("IDR"))
+                .body("routingProvider", equalTo("valhalla:auto"));
+
+        assertEquals(0, tripCount());
+    }
+
+    @Test
+    void motorAndCarBookingsPersistTheirServerCalculatedFareSnapshots() {
+        String customerToken = registerAccount("CUSTOMER");
+
+        String motorTripId = createTrip(customerToken, "MOTOR", 1)
+                .then()
+                .statusCode(201)
+                .body("estimatedFare", equalTo(14600.0f))
+                .extract().path("id");
+        assertStoredRouteSnapshot(Long.parseLong(motorTripId), "motorcycle", 14600, 5000, 2000, 8000);
+
+        String carTripId = createTrip(customerToken, "MOBIL", 999999)
+                .then()
+                .statusCode(201)
+                .body("estimatedFare", equalTo(24800.0f))
+                .extract().path("id");
+        assertStoredRouteSnapshot(Long.parseLong(carTripId), "car", 24800, 8000, 3500, 12000);
+    }
+
+    @Test
+    void customerNotesArePersistedAndReturnedWithTheTrip() {
+        String customerToken = registerAccount("CUSTOMER");
+
+        given()
+                .auth().oauth2(customerToken)
+                .contentType("application/json")
+                .body("""
+                        {
+                          "pickupAddress":"Pickup point",
+                          "pickupLatitude":-8.6834,
+                          "pickupLongitude":115.2289,
+                          "destinationAddress":"Destination point",
+                          "destinationLatitude":-8.6755,
+                          "destinationLongitude":115.2635,
+                          "vehicleType":"MOTOR",
+                          "tripNotes":"Call on arrival"
+                        }
+                        """)
+                .when().post("/trips")
+                .then()
+                .statusCode(201)
+                .body("tripNotes", equalTo("Call on arrival"));
+    }
+
+    @Test
+    void routeProviderFailurePreventsEstimateAndOrderCreation() {
+        String customerToken = registerAccount("CUSTOMER");
+        String request = """
+                {
+                  "pickupAddress":"Pickup point",
+                  "pickupLatitude":0,
+                  "pickupLongitude":115.2289,
+                  "destinationAddress":"Destination point",
+                  "destinationLatitude":-8.6755,
+                  "destinationLongitude":115.2635,
+                  "vehicleType":"MOTOR",
+                  "currencyCode":"IDR",
+                  "estimatedFare":1
+                }
+                """;
+
+        given()
+                .auth().oauth2(customerToken)
+                .contentType("application/json")
+                .body(request)
+                .when().post("/trips")
+                .then()
+                .statusCode(503)
+                .body("code", equalTo("routing_unavailable"));
+
+        assertEquals(0, tripCount());
+    }
+
+    @Test
+    void invalidRouteCoordinatesAreRejected() {
+        String customerToken = registerAccount("CUSTOMER");
+
+        given()
+                .auth().oauth2(customerToken)
+                .contentType("application/json")
+                .body("""
+                        {
+                          "pickupLatitude":91,
+                          "pickupLongitude":115.2289,
+                          "destinationLatitude":-8.6755,
+                          "destinationLongitude":115.2635,
+                          "vehicleType":"MOTOR"
+                        }
+                        """)
+                .when().post("/routes/estimate")
+                .then().statusCode(400);
+
+        assertEquals(0, tripCount());
     }
 
     @Test
@@ -137,7 +286,10 @@ class TripResourceTest {
                 .when().get("/drivers/me/orders")
                 .then()
                 .statusCode(200)
-                .body("id", hasItem(tripId));
+                .body("id", hasItem(tripId))
+                .body("[0].customerId", nullValue())
+                .body("[0].customerName", nullValue())
+                .body("[0].customerPhone", nullValue());
 
         String carDriver = eligibleDriverToken("MOBIL");
         given()
@@ -155,17 +307,39 @@ class TripResourceTest {
                 .body("statusHistory", hasSize(2))
                 .body("statusHistory[1].status", equalTo("ACCEPTED"));
 
+        String carTripId = createTrip(customerToken, "MOBIL", 1)
+                .then().statusCode(201)
+                .body("estimatedFare", equalTo(24800.0f))
+                .extract().path("id");
+        given()
+                .auth().oauth2(carDriver)
+                .when().get("/drivers/me/orders")
+                .then()
+                .statusCode(200)
+                .body("id", hasItem(carTripId));
+        given()
+                .auth().oauth2(carDriver)
+                .when().post("/trips/" + carTripId + "/accept")
+                .then()
+                .statusCode(200)
+                .body("status", equalTo("ACCEPTED"))
+                .body("estimatedFare", equalTo(24800.0f));
+
         given()
                 .auth().oauth2(customerToken)
                 .when().get("/trips/" + tripId)
                 .then()
                 .statusCode(200)
-                .body("status", equalTo("ACCEPTED"));
+                .body("status", equalTo("ACCEPTED"))
+                .body("routeDistanceMeters", equalTo(4800))
+                .body("estimatedFare", equalTo(14600.0f));
         given()
                 .auth().oauth2(driverToken)
                 .when().get("/trips/" + tripId)
                 .then()
-                .statusCode(200);
+                .statusCode(200)
+                .body("routeDistanceMeters", equalTo(4800))
+                .body("estimatedFare", equalTo(14600.0f));
 
         String anotherDriver = eligibleDriverToken("MOTOR");
         given()
@@ -380,7 +554,7 @@ class TripResourceTest {
                 .then()
                 .statusCode(200)
                 .body("status", equalTo("COMPLETED"))
-                .body("finalFare", equalTo(17500.0f))
+                .body("finalFare", equalTo(14600.0f))
                 .body("statusHistory", hasSize(5));
 
         given()
@@ -614,6 +788,51 @@ class TripResourceTest {
             statement.executeUpdate();
         } catch (Exception exception) {
             throw new IllegalStateException("Could not prepare trip test state", exception);
+        }
+    }
+
+    private int tripCount() {
+        try (Connection connection = dataSource.getConnection();
+                var statement = connection.createStatement();
+                ResultSet result = statement.executeQuery("SELECT count(*) FROM trips")) {
+            result.next();
+            return result.getInt(1);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not inspect trip count", exception);
+        }
+    }
+
+    private void assertStoredRouteSnapshot(
+            long tripId,
+            String vehicleType,
+            long expectedFare,
+            long expectedBase,
+            long expectedRate,
+            long expectedMinimum) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT vehicle_type, route_distance_meters, estimated_duration_seconds, estimated_fare, "
+                                + "fare_base_amount, fare_per_kilometer, fare_minimum_amount, "
+                                + "fare_config_version, routing_provider FROM trips WHERE id = ?")) {
+            statement.setLong(1, tripId);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new AssertionError("Trip route snapshot was not persisted");
+                }
+                assertEquals(vehicleType, result.getString("vehicle_type"));
+                assertEquals(4800L, result.getLong("route_distance_meters"));
+                assertEquals(900, result.getInt("estimated_duration_seconds"));
+                assertEquals(expectedFare, result.getBigDecimal("estimated_fare").intValueExact());
+                assertEquals(expectedBase, result.getBigDecimal("fare_base_amount").intValueExact());
+                assertEquals(expectedRate, result.getBigDecimal("fare_per_kilometer").intValueExact());
+                assertEquals(expectedMinimum, result.getBigDecimal("fare_minimum_amount").intValueExact());
+                assertEquals("demo-v2-vehicle", result.getString("fare_config_version"));
+                assertEquals(
+                        "motorcycle".equals(vehicleType) ? "valhalla:motor_scooter" : "valhalla:auto",
+                        result.getString("routing_provider"));
+            }
+        } catch (Exception exception) {
+            throw new IllegalStateException("Could not verify trip route snapshot", exception);
         }
     }
 

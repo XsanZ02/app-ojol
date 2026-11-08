@@ -53,7 +53,7 @@ export default function DriverTripHistoryPage() {
     .reduce((acc, t) => acc + (t.finalFare ?? 0), 0);
 
   const filterTabs = [
-    { id: "ALL", label: "Semua Tarikan" },
+    { id: "ALL", label: "Semua Perjalanan" },
     { id: "COMPLETED", label: "Selesai" },
     { id: "CANCELLED", label: "Dibatalkan" },
   ];
@@ -65,7 +65,7 @@ export default function DriverTripHistoryPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
             <h1 className="text-2xl font-extrabold text-rf-navy">
-              Riwayat Tarikan Pengemudi
+              Riwayat Perjalanan
             </h1>
             <p className="text-xs text-rf-text-secondary mt-0.5">
               Daftar rekam jejak seluruh order yang pernah Anda selesaikan
@@ -121,8 +121,8 @@ export default function DriverTripHistoryPage() {
         ) : filteredTrips.length === 0 ? (
           <EmptyState
             icon={<History className="w-6 h-6" />}
-            title="Tidak Ada Riwayat Tarikan"
-            description="Belum ada riwayat pesanan yang sesuai dengan filter atau Anda belum menyelesaikan tarikan baru hari ini."
+            title="Belum Ada Riwayat Perjalanan"
+            description="Belum ada perjalanan yang sesuai dengan filter ini. Perjalanan yang selesai akan tercatat di sini."
           />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -60,14 +60,14 @@ export default function AdminDriversPage() {
   return (
     <AdminLayout>
       <div className="mx-auto max-w-7xl space-y-6">
-        <PageHeading title="Manajemen Driver" subtitle="Status operasional, kendaraan, dan perjalanan dari backend." />
+        <PageHeading title="Mitra Pengemudi" subtitle="Tinjau status akun, operasional, kendaraan, dan perjalanan mitra." />
         <div className="flex flex-col gap-3 sm:flex-row">
           <input
             type="search"
             value={search}
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
-            placeholder="Cari nama atau email driver"
-            aria-label="Cari nama atau email driver"
+            placeholder="Cari nama atau email mitra"
+            aria-label="Cari nama atau email mitra"
             className="min-h-11 flex-1 rounded-rf border border-slate-200 bg-white px-3 text-sm outline-none focus:border-rf-blue"
           />
           <select
@@ -77,24 +77,24 @@ export default function AdminDriversPage() {
             className="min-h-11 rounded-rf border border-slate-200 bg-white px-3 text-sm"
           >
             <option value="">Semua status operasional</option>
-            <option value="pending">Pending</option>
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
+            <option value="pending">Menunggu verifikasi</option>
+            <option value="active">Aktif</option>
+            <option value="suspended">Ditangguhkan</option>
           </select>
         </div>
-        {state.status === "loading" && <AdminLoading label="Memuat daftar driver..." />}
+        {state.status === "loading" && <AdminLoading label="Memuat daftar mitra pengemudi..." />}
         {state.status === "error" && <AdminError message={state.message} onRetry={() => setReloadKey((key) => key + 1)} />}
         {state.status === "success" && (
           <div className="overflow-hidden rounded-rf-md border border-slate-200 bg-white">
-            {state.data.drivers.length === 0 ? <AdminEmpty>Tidak ada driver yang cocok.</AdminEmpty> : (
+            {state.data.drivers.length === 0 ? <AdminEmpty>Tidak ada mitra yang cocok.</AdminEmpty> : (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[900px] text-left text-sm">
                     <thead className="bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
                       <tr>
-                        <th className="px-4 py-3">Driver</th><th className="px-4 py-3">Akun</th>
-                        <th className="px-4 py-3">Operasional</th><th className="px-4 py-3">Online</th>
-                        <th className="px-4 py-3">Kendaraan</th><th className="px-4 py-3">Order selesai</th>
+                        <th className="px-4 py-3">Mitra pengemudi</th><th className="px-4 py-3">Akun</th>
+                        <th className="px-4 py-3">Operasional</th><th className="px-4 py-3">Status aktif</th>
+                        <th className="px-4 py-3">Kendaraan</th><th className="px-4 py-3">Perjalanan selesai</th>
                         <th className="px-4 py-3">Diperbarui</th>
                       </tr>
                     </thead>
@@ -105,9 +105,9 @@ export default function AdminDriversPage() {
                             <Link href={`/admin/drivers/${driver.id}`} className="font-bold text-rf-blue hover:underline">{driver.name}</Link>
                             <p className="text-xs text-slate-500">{driver.email}</p>
                           </td>
-                          <td className="px-4 py-3">{driver.accountStatus}</td>
-                          <td className="px-4 py-3">{driver.operationalStatus}</td>
-                          <td className="px-4 py-3">{driver.online ? "Online" : "Offline"}</td>
+                          <td className="px-4 py-3">{getDriverStatusLabel(driver.accountStatus)}</td>
+                          <td className="px-4 py-3">{getDriverStatusLabel(driver.operationalStatus)}</td>
+                          <td className="px-4 py-3">{driver.online ? "Tersedia" : "Tidak tersedia"}</td>
                           <td className="px-4 py-3 tabular-nums">{driver.vehicleCount}</td>
                           <td className="px-4 py-3 tabular-nums">{driver.completedTrips}</td>
                           <td className="whitespace-nowrap px-4 py-3 text-xs text-slate-500">{formatAdminDate(driver.updatedAt)}</td>
@@ -124,6 +124,16 @@ export default function AdminDriversPage() {
       </div>
     </AdminLayout>
   );
+}
+
+function getDriverStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    active: "Aktif",
+    pending: "Menunggu verifikasi",
+    suspended: "Ditangguhkan",
+    rejected: "Ditolak",
+  };
+  return labels[status.toLowerCase()] ?? "Status belum tersedia";
 }
 
 function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {

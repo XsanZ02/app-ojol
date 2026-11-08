@@ -2,8 +2,10 @@ package id.rideflow.resource;
 
 import id.rideflow.dto.TripRequests;
 import id.rideflow.dto.TripResponses;
+import id.rideflow.service.TripEventService;
 import id.rideflow.service.TripService;
 import io.quarkus.security.Authenticated;
+import io.smallrye.mutiny.Multi;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.ws.rs.GET;
@@ -13,6 +15,7 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.jboss.resteasy.reactive.RestStreamElementType;
 import org.eclipse.microprofile.jwt.JsonWebToken;
 
 import java.util.List;
@@ -26,12 +29,17 @@ public class TripResource {
     TripService tripService;
 
     @Inject
+    TripEventService tripEventService;
+
+    @Inject
     JsonWebToken jwt;
 
     @POST
     public Response create(@Valid TripRequests.Create request) {
+        TripResponses.Trip trip = tripService.create(jwt.getSubject(), request);
+        tripEventService.publish(trip);
         return Response.status(Response.Status.CREATED)
-                .entity(tripService.create(jwt.getSubject(), request))
+                .entity(trip)
                 .build();
     }
 
@@ -47,36 +55,55 @@ public class TripResource {
         return tripService.getTrip(jwt.getSubject(), tripId);
     }
 
+    @GET
+    @Path("/{tripId}/events")
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    @RestStreamElementType(MediaType.APPLICATION_JSON)
+    public Multi<TripEventService.TripEvent> tripEvents(@PathParam("tripId") long tripId) {
+        tripService.getTrip(jwt.getSubject(), tripId);
+        return tripEventService.subscribeToTrip(Long.toString(tripId));
+    }
+
     @POST
     @Path("/{tripId}/cancel")
     @jakarta.ws.rs.Consumes(MediaType.APPLICATION_JSON)
     public TripResponses.Trip cancel(
             @PathParam("tripId") long tripId,
             @Valid TripRequests.Cancel request) {
-        return tripService.cancel(jwt.getSubject(), tripId, request);
+        TripResponses.Trip trip = tripService.cancel(jwt.getSubject(), tripId, request);
+        tripEventService.publish(trip);
+        return trip;
     }
 
     @POST
     @Path("/{tripId}/accept")
     public TripResponses.Trip accept(@PathParam("tripId") long tripId) {
-        return tripService.accept(jwt.getSubject(), tripId);
+        TripResponses.Trip trip = tripService.accept(jwt.getSubject(), tripId);
+        tripEventService.publish(trip);
+        return trip;
     }
 
     @POST
     @Path("/{tripId}/picking-up")
     public TripResponses.Trip pickingUp(@PathParam("tripId") long tripId) {
-        return tripService.progress(jwt.getSubject(), tripId, "picking_up");
+        TripResponses.Trip trip = tripService.progress(jwt.getSubject(), tripId, "picking_up");
+        tripEventService.publish(trip);
+        return trip;
     }
 
     @POST
     @Path("/{tripId}/start")
     public TripResponses.Trip start(@PathParam("tripId") long tripId) {
-        return tripService.progress(jwt.getSubject(), tripId, "in_progress");
+        TripResponses.Trip trip = tripService.progress(jwt.getSubject(), tripId, "in_progress");
+        tripEventService.publish(trip);
+        return trip;
     }
 
     @POST
     @Path("/{tripId}/complete")
     public TripResponses.Trip complete(@PathParam("tripId") long tripId) {
-        return tripService.progress(jwt.getSubject(), tripId, "completed");
+        TripResponses.Trip trip = tripService.progress(jwt.getSubject(), tripId, "completed");
+        tripEventService.publish(trip);
+        return trip;
     }
 }

@@ -58,7 +58,9 @@ export default function RegisterPage() {
     }
     const passwordBytes = new TextEncoder().encode(password).length;
     if (passwordBytes < 12 || passwordBytes > 72) {
-      setError("Kata sandi harus sepanjang 12–72 byte UTF-8.");
+      setError(
+        "Kata sandi harus terdiri dari minimal 12 karakter dan maksimal 72 byte."
+      );
       return;
     }
     if (password !== passwordConfirm) {
@@ -116,31 +118,31 @@ export default function RegisterPage() {
 
           <div className="my-10 space-y-4">
             <h2 className="text-3xl font-extrabold tracking-tight leading-tight">
-              Bergabung dengan Ekosistem RideFlow
+              Bergabung dengan RideFlow
             </h2>
             <p className="text-sm text-slate-300 leading-relaxed">
-              Daftar sebagai Penumpang untuk menikmati perjalanan aman dan nyaman, atau bergabung sebagai Mitra Pengemudi untuk penghasilan fleksibel di Bali.
+              Buat akun penumpang untuk memesan perjalanan atau daftar sebagai mitra pengemudi di Bali.
             </p>
 
             <div className="pt-4 space-y-2.5">
               <div className="flex items-center gap-2.5 text-xs text-slate-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Estimasi tarif transparan tanpa biaya tersembunyi</span>
+                <span>Lihat estimasi tarif sebelum memesan</span>
               </div>
               <div className="flex items-center gap-2.5 text-xs text-slate-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Pilihan kendaraan motor gesit dan mobil ber-AC</span>
+                <span>Pilihan kendaraan motor dan mobil sesuai kebutuhan</span>
               </div>
               <div className="flex items-center gap-2.5 text-xs text-slate-200">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Navigasi rute optimal kawasan Denpasar & Sanur</span>
+                <span>Layanan perjalanan di kawasan Denpasar dan Sanur</span>
               </div>
             </div>
           </div>
 
           <div className="p-4 rounded-rf bg-white/10 backdrop-blur-md border border-white/15 text-xs text-slate-300 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0" />
-            <span>Data Anda tersimpan dengan aman pada arsitektur terisolasi.</span>
+            <span>Selesaikan pendaftaran untuk mulai menggunakan RideFlow.</span>
           </div>
         </div>
 
@@ -212,7 +214,7 @@ export default function RegisterPage() {
                 <div>
                   <div className="font-bold text-sm">Mitra Pengemudi</div>
                   <div className="text-[11px] text-rf-text-secondary">
-                    Terima order tarikan
+                    Terima pesanan perjalanan
                   </div>
                 </div>
               </button>
@@ -265,13 +267,13 @@ export default function RegisterPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="12–72 byte UTF-8"
+                placeholder="Minimal 12 karakter"
                 leftIcon={<Lock className="w-4 h-4" />}
                 required
               />
 
               <InsetInput
-                label="Konfirmasi Sandi"
+                label="Konfirmasi Kata Sandi"
                 type="password"
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}

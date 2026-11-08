@@ -68,7 +68,36 @@ class FlywayMigrationTest {
                 .orElse(null);
         assertTrue(adminRoleMigration != null, "Flyway should discover the admin role migration");
         assertEquals(MigrationState.SUCCESS, adminRoleMigration.getState());
+        var routeEstimateMigration = java.util.Arrays.stream(flyway.info().all())
+                .filter(migration -> "5".equals(migration.getVersion().getVersion())
+                        && "store routed trip estimates".equals(migration.getDescription()))
+                .findFirst()
+                .orElse(null);
+        assertTrue(routeEstimateMigration != null, "Flyway should discover the routed trip migration");
+        assertEquals(MigrationState.SUCCESS, routeEstimateMigration.getState());
+        var tripNotesMigration = java.util.Arrays.stream(flyway.info().all())
+                .filter(migration -> "6".equals(migration.getVersion().getVersion())
+                        && "store trip notes".equals(migration.getDescription()))
+                .findFirst()
+                .orElse(null);
+        assertTrue(tripNotesMigration != null, "Flyway should discover the trip notes migration");
+        assertEquals(MigrationState.SUCCESS, tripNotesMigration.getState());
         flyway.validate();
+
+        String routeMigration;
+        try (InputStream migrationResource = Thread.currentThread()
+                .getContextClassLoader()
+                .getResourceAsStream("db/migration/V5__store_routed_trip_estimates.sql")) {
+            assertNotNull(migrationResource, "Routed trip migration should be on the classpath");
+            routeMigration = new String(migrationResource.readAllBytes(), StandardCharsets.UTF_8)
+                    .toLowerCase()
+                    .replaceAll("\\s+", " ");
+        }
+        assertContains(routeMigration, "route_distance_meters bigint");
+        assertContains(routeMigration, "estimated_duration_seconds integer");
+        assertContains(routeMigration, "route_geometry text");
+        assertContains(routeMigration, "routing_provider varchar(64)");
+        assertContains(routeMigration, "fare_config_version varchar(32)");
 
         Properties productionProperties = new Properties();
         try (var reader = Files.newBufferedReader(Path.of("src/main/resources/application.properties"))) {

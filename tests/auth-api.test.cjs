@@ -32,6 +32,7 @@ const {
   authenticatedRequest,
   getProtectedRouteRedirect,
   getRoleHomePath,
+  subscribeToAuthenticatedEvents,
 } = require("../src/lib/auth-api.ts");
 const { AdminUsersTable } = require("../src/components/admin/AdminUsersTable.tsx");
 const { renderToStaticMarkup } = require("react-dom/server");
@@ -415,6 +416,53 @@ test("authenticated API requests use the session token for supported methods", a
   assert.deepEqual(JSON.parse(calls[2].options.body), { isActive: true });
 });
 
+test("authenticated event streams send the bearer token and parse SSE data", async () => {
+  storage.set("rideflow_access_token", "event-stream-token");
+  let streamController;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    const stream = new ReadableStream({
+      start(controller) {
+        streamController = controller;
+        controller.enqueue(
+          new TextEncoder().encode('data: {"tripId":"42","status":"ACCEPTED"}\n\n')
+        );
+      },
+    });
+    options.signal.addEventListener("abort", () => streamController.close());
+    return new Response(stream, {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  };
+
+  const events = [];
+  const states = [];
+  let receiveEvent;
+  const eventReceived = new Promise((resolve) => {
+    receiveEvent = resolve;
+  });
+  const stop = subscribeToAuthenticatedEvents(
+    "/trips/42/events",
+    (event) => {
+      events.push(event);
+      receiveEvent();
+    },
+    (state) => states.push(state)
+  );
+
+  await eventReceived;
+  stop();
+
+  assert.equal(calls[0].url, "http://localhost:8080/trips/42/events");
+  assert.equal(
+    calls[0].options.headers.Authorization,
+    `Bearer ${storage.get("rideflow_access_token")}`
+  );
+  assert.deepEqual(events, [{ tripId: "42", status: "ACCEPTED" }]);
+  assert.ok(states.includes("connected"));
+});
+
 test("authenticated API errors do not include the bearer token", async () => {
   storage.set("rideflow_access_token", "jwt-test-token");
   globalThis.fetch = async () =>
@@ -428,6 +476,42 @@ test("authenticated API errors do not include the bearer token", async () => {
       return true;
     }
   );
+});
+
+test("booking API failures identify route-provider and database causes", async (context) => {
+  await context.test("route provider unavailable", async () => {
+    storage.set("rideflow_access_token", "jwt-test-token");
+    globalThis.fetch = async () =>
+      response(
+        { message: "Route estimation is temporarily unavailable", code: "routing_unavailable" },
+        503
+      );
+    await assert.rejects(
+      authenticatedRequest("/trips", { method: "POST", body: {} }),
+      {
+        message:
+          "Layanan perhitungan rute sedang tidak merespons. Coba estimasi rute lagi.",
+        code: "routing_unavailable",
+      }
+    );
+  });
+
+  await context.test("trip database persistence failure", async () => {
+    storage.set("rideflow_access_token", "jwt-test-token");
+    globalThis.fetch = async () =>
+      response(
+        { message: "Trip operation could not be completed", code: "trip_operation_failed" },
+        500
+      );
+    await assert.rejects(
+      authenticatedRequest("/trips", { method: "POST", body: {} }),
+      {
+        message:
+          "Pemesanan belum berhasil. Silakan coba kembali beberapa saat lagi.",
+        code: "trip_operation_failed",
+      }
+    );
+  });
 });
 
 test("server-side session reads do not access browser storage", async () => {

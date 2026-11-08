@@ -76,7 +76,7 @@ export function formatTimeOnly(isoString: string): string {
 export function getStatusLabel(status: BookingStatus): string {
   switch (status) {
     case "PENDING":
-      return "Menunggu Pengemudi";
+      return "Mencari Driver";
     case "ACCEPTED":
       return "Pengemudi Ditemukan";
     case "PICKING_UP":
@@ -92,6 +92,18 @@ export function getStatusLabel(status: BookingStatus): string {
   }
 }
 
+export function getApiStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    requested: "Menunggu pengemudi",
+    accepted: "Pengemudi ditemukan",
+    picking_up: "Menuju titik jemput",
+    in_progress: "Dalam perjalanan",
+    completed: "Selesai",
+    cancelled: "Dibatalkan",
+  };
+  return labels[status.toLowerCase()] ?? "Status perjalanan tidak dikenali";
+}
+
 /**
  * Badge styling classes for booking status
  */
@@ -99,7 +111,7 @@ export function getStatusBadgeConfig(status: BookingStatus) {
   switch (status) {
     case "PENDING":
       return {
-        label: "Menunggu Pengemudi",
+        label: "Mencari Driver",
         badgeClass:
           "bg-amber-50 text-amber-700 border-amber-200/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]",
         dotClass: "bg-amber-500 animate-pulse",
@@ -153,4 +165,3 @@ export function generateBookingId(): string {
   const randomPart = Math.floor(1000 + Math.random() * 9000);
   return `RF-${datePart}-${randomPart}`;
 }
-

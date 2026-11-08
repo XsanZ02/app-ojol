@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { SurfaceCard } from "@/components/ui/SurfaceCard";
 import { TactileButton } from "@/components/ui/TactileButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TripTimeline } from "@/components/trip/TripTimeline";
-import { IllustrativeMap } from "@/components/booking/IllustrativeMap";
+import { RouteMap } from "@/components/booking/RouteMap";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { bookingsApi } from "@/lib/api";
+import type { EventStreamConnectionState } from "@/lib/auth-api";
 import { Booking } from "@/types/booking";
 import { formatDateTime, formatIDR, getStatusLabel } from "@/lib/utils";
 import { useToast } from "@/components/ui/ToastNotification";
@@ -38,25 +39,56 @@ export default function CustomerTripDetailsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  const [connectionState, setConnectionState] =
+    useState<EventStreamConnectionState>("connecting");
+  const fetchSequence = useRef(0);
+  const lastStatus = useRef<Booking["status"] | null>(null);
 
   const fetchTrip = useCallback(async () => {
+    const requestSequence = ++fetchSequence.current;
     setLoadError(null);
     try {
       const data = await bookingsApi.getById(bookingId);
-      setBooking(data);
+      if (requestSequence === fetchSequence.current) {
+        if (data && lastStatus.current && data.status !== lastStatus.current) {
+          showToast(
+            data.status === "ACCEPTED"
+              ? "Driver ditemukan dan menerima pesanan Anda."
+              : `Status perjalanan diperbarui: ${getStatusLabel(data.status)}.`,
+            data.status === "ACCEPTED" ? "success" : "info"
+          );
+        }
+        lastStatus.current = data?.status ?? null;
+        setBooking(data);
+      }
     } catch (error) {
-      setBooking(null);
-      setLoadError(
-        error instanceof Error ? error.message : "Perjalanan tidak dapat dimuat."
-      );
+      if (requestSequence === fetchSequence.current) {
+        setLoadError(
+          error instanceof Error ? error.message : "Perjalanan tidak dapat dimuat."
+        );
+      }
     } finally {
-      setIsLoading(false);
+      if (requestSequence === fetchSequence.current) setIsLoading(false);
     }
-  }, [bookingId]);
+  }, [bookingId, showToast]);
 
   useEffect(() => {
     fetchTrip();
   }, [fetchTrip]);
+
+  useEffect(() => {
+    return bookingsApi.subscribeToTripUpdates(
+      bookingId,
+      () => {
+        void fetchTrip();
+      },
+      (state) => {
+        setConnectionState(state);
+        if (state === "connected") void fetchTrip();
+      },
+      (error) => showToast(error.message, "error")
+    );
+  }, [bookingId, fetchTrip, showToast]);
 
   const handleCancelBooking = async () => {
     if (!booking) return;
@@ -178,6 +210,22 @@ export default function CustomerTripDetailsPage() {
               <p className="text-sm font-bold text-rf-blue">
                 {getStatusLabel(booking.status)}
               </p>
+              <p
+                className={`mt-1 text-[11px] font-medium ${
+                  connectionState === "connected"
+                    ? "text-emerald-700"
+                    : "text-amber-700"
+                }`}
+                aria-live="polite"
+              >
+                {connectionState === "connected"
+                  ? "Pembaruan langsung aktif"
+                  : connectionState === "reconnecting"
+                    ? "Menyambungkan ulang pembaruan..."
+                    : connectionState === "disconnected"
+                      ? "Koneksi pembaruan langsung terhenti"
+                      : "Menghubungkan pembaruan langsung..."}
+              </p>
             </div>
           </div>
 
@@ -190,6 +238,14 @@ export default function CustomerTripDetailsPage() {
             </p>
           </div>
         </div>
+        {loadError && (
+          <p
+            role="alert"
+            className="rounded-rf border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800"
+          >
+            Status terakhir masih ditampilkan. {loadError}
+          </p>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
           {/* Left Column: Progress Timeline & Driver Profile */}
@@ -283,11 +339,12 @@ export default function CustomerTripDetailsPage() {
             </SurfaceCard>
           </div>
 
-          {/* Right Column: Route Details & Illustrative Map */}
+          {/* Right Column: Route Details & Map */}
           <div className="md:col-span-5 space-y-4">
-            <IllustrativeMap
+            <RouteMap
               pickup={booking.pickup}
               destination={booking.destination}
+              routeGeometry={booking.routeGeometry}
               className="h-48"
             />
 
@@ -343,13 +400,25 @@ export default function CustomerTripDetailsPage() {
               </div>
 
               {/* Vehicle & Distance Summary */}
-              <div className="pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-center text-xs">
+              <div className="pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center text-xs">
                 <div className="p-2 bg-slate-50 rounded-rf-sm">
                   <span className="text-slate-400 block text-[10px] font-bold uppercase">
                     Jarak Tempuh
                   </span>
                   <span className="font-bold text-rf-navy">
-                    {booking.estimatedDistanceKm} km
+                    {booking.estimatedDistanceKm === null
+                      ? "Belum tersedia"
+                      : `${booking.estimatedDistanceKm.toFixed(1)} km`}
+                  </span>
+                </div>
+                <div className="p-2 bg-slate-50 rounded-rf-sm">
+                  <span className="text-slate-400 block text-[10px] font-bold uppercase">
+                    Estimasi Waktu
+                  </span>
+                  <span className="font-bold text-rf-navy">
+                    {booking.estimatedDurationMin === null
+                      ? "Belum tersedia"
+                      : `± ${booking.estimatedDurationMin} menit`}
                   </span>
                 </div>
                 <div className="p-2 bg-slate-50 rounded-rf-sm">

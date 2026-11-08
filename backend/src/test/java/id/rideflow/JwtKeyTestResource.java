@@ -22,10 +22,9 @@ public class JwtKeyTestResource implements QuarkusTestResourceLifecycleManager {
             var keyPair = generator.generateKeyPair();
 
             Path privateKey = writePem("private", "PRIVATE KEY", keyPair.getPrivate().getEncoded());
-            Path publicKey = writePem("public", "PUBLIC KEY", keyPair.getPublic().getEncoded());
             return Map.of(
                     "smallrye.jwt.sign.key.location", privateKey.toUri().toString(),
-                    "mp.jwt.verify.publickey.location", publicKey.toUri().toString());
+                    "mp.jwt.verify.publickey", pem("PUBLIC KEY", keyPair.getPublic().getEncoded()));
         } catch (Exception exception) {
             deleteKeyDirectory();
             throw new IllegalStateException("Could not create temporary JWT test keys", exception);
@@ -38,11 +37,14 @@ public class JwtKeyTestResource implements QuarkusTestResourceLifecycleManager {
     }
 
     private Path writePem(String name, String type, byte[] encodedKey) throws Exception {
-        String content = "-----BEGIN " + type + "-----\n"
+        Path path = keyDirectory.resolve("rideflow-test-" + name + ".pem");
+        return Files.writeString(path, pem(type, encodedKey), StandardOpenOption.CREATE_NEW);
+    }
+
+    private static String pem(String type, byte[] encodedKey) {
+        return "-----BEGIN " + type + "-----\n"
                 + Base64.getMimeEncoder(64, new byte[] {'\n'}).encodeToString(encodedKey)
                 + "\n-----END " + type + "-----\n";
-        Path path = keyDirectory.resolve("rideflow-test-" + name + ".pem");
-        return Files.writeString(path, content, StandardOpenOption.CREATE_NEW);
     }
 
     private void deleteKeyDirectory() {

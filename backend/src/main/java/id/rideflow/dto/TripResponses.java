@@ -20,9 +20,15 @@ public final class TripResponses {
             String vehicleType,
             Location pickup,
             Location destination,
+            String tripNotes,
             BigDecimal estimatedDistanceKm,
-            int estimatedDurationMin,
+            Long routeDistanceMeters,
+            Integer estimatedDurationMin,
+            Integer estimatedDurationSeconds,
             BigDecimal estimatedFare,
+            String routingProvider,
+            String routeGeometry,
+            String fareConfigVersion,
             BigDecimal finalFare,
             String currencyCode,
             List<StatusHistory> statusHistory,
@@ -31,7 +37,14 @@ public final class TripResponses {
             String acceptedAt,
             String startedAt,
             String completedAt,
-            String cancelledAt) {
+            String cancelledAt,
+            String customerId,
+            String customerName,
+            String customerPhone,
+            String driverName,
+            String driverPhone,
+            String vehicleModel,
+            String vehiclePlate) {
     }
 
     public record Error(String message, String code) {

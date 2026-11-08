@@ -17,11 +17,11 @@ import { adminApi, AuthApiError, getRoleHomePath } from "@/lib/auth-api";
 import { cn } from "@/lib/utils";
 
 const navigation = [
-  { label: "Dashboard", href: "/admin/dashboard", icon: LayoutDashboard },
+  { label: "Ringkasan", href: "/admin/dashboard", icon: LayoutDashboard },
   { label: "Manajemen Pengguna", href: "/admin/users", icon: Users },
-  { label: "Manajemen Driver", href: "/admin/drivers", icon: CarFront },
-  { label: "Verifikasi Driver", href: "/admin/verification", icon: ShieldCheck },
-  { label: "Manajemen Order", href: "/admin/orders", icon: ShoppingBag },
+  { label: "Mitra Pengemudi", href: "/admin/drivers", icon: CarFront },
+  { label: "Verifikasi Mitra", href: "/admin/verification", icon: ShieldCheck },
+  { label: "Manajemen Pesanan", href: "/admin/orders", icon: ShoppingBag },
   { label: "Pembayaran & Laporan", href: "/admin/reports", icon: BarChart3 },
 ];
 
@@ -152,8 +152,8 @@ export function AdminLayout({ children }: AdminLayoutProps) {
   }
 
   return (
-    <div className="min-h-screen bg-rf-bg pb-20 md:pb-0">
-      <header className="sticky top-0 z-30 border-b border-slate-200/90 bg-white/95 shadow-sm backdrop-blur">
+    <div className="min-h-screen bg-rf-bg pb-36 md:pb-0">
+      <header className="rf-glass-surface sticky top-0 z-30 border-x-0 border-t-0">
         <div className="mx-auto flex h-16 max-w-[1600px] items-center justify-between px-4 sm:px-6">
           <Link
             href="/admin/dashboard"
@@ -240,9 +240,9 @@ export function AdminLayout({ children }: AdminLayoutProps) {
 
       <nav
         aria-label="Navigasi administrator mobile"
-        className="fixed inset-x-0 bottom-0 z-30 overflow-x-auto border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur md:hidden"
+        className="rf-glass-surface fixed inset-x-0 bottom-0 z-30 border-x-0 border-b-0 px-2 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
       >
-        <div className="flex min-w-max items-center gap-1">
+        <div className="grid grid-cols-3 gap-1">
           {navigation.map((item) => {
             const Icon = item.icon;
             const active = item.href === pathname;
@@ -253,7 +253,7 @@ export function AdminLayout({ children }: AdminLayoutProps) {
               </>
             );
             const classes = cn(
-              "flex min-h-12 min-w-20 flex-col items-center justify-center gap-1 rounded-rf px-2 text-[10px] font-semibold",
+              "flex min-h-11 flex-col items-center justify-center gap-1 rounded-rf px-1 text-[10px] font-semibold",
               active ? "bg-blue-50 text-rf-blue" : "text-slate-600"
             );
             return item.href ? (

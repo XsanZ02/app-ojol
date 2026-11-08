@@ -41,7 +41,7 @@ require.extensions[".ts"] = (module, filename) => {
   module._compile(outputText, filename);
 };
 
-const { driverApi, profileApi } = require("../src/lib/api.ts");
+const { driverApi, profileApi, routesApi } = require("../src/lib/api.ts");
 const { MockStorage } = require("../src/lib/mock-storage.ts");
 
 function response(body, status = 200) {
@@ -79,6 +79,46 @@ afterEach(() => {
   } else {
     globalThis.window = originalWindow;
   }
+});
+
+test("routesApi requests a backend motor route estimate without creating a trip", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return response({
+      distanceMeters: 4800,
+      distanceKm: 4.8,
+      durationSeconds: 900,
+      estimatedFare: 17500,
+      currency: "IDR",
+      fareConfigVersion: "demo-v1",
+      routingProvider: "valhalla:motor_scooter",
+      routeGeometry: "encoded-route",
+    });
+  };
+
+  const estimate = await routesApi.estimate({
+    pickupLatitude: -8.6834,
+    pickupLongitude: 115.2289,
+    destinationLatitude: -8.6755,
+    destinationLongitude: 115.2635,
+    vehicleType: "MOTOR",
+  });
+
+  assert.equal(estimate.distanceMeters, 4800);
+  assert.equal(estimate.estimatedFare, 17500);
+  assert.equal(estimate.routeGeometry, "encoded-route");
+  assert.equal(estimate.vehicleType, "MOTOR");
+  assert.equal(calls[0].url, "http://localhost:8080/routes/estimate");
+  assert.equal(calls[0].options.method, "POST");
+  assert.match(calls[0].options.headers.Authorization, /^Bearer /);
+  assert.deepEqual(JSON.parse(calls[0].options.body), {
+    pickupLatitude: -8.6834,
+    pickupLongitude: 115.2289,
+    destinationLatitude: -8.6755,
+    destinationLongitude: 115.2635,
+    vehicleType: "MOTOR",
+  });
 });
 
 test("driverApi.updateProfile calls PUT /drivers/me/profile with bearer token", async () => {
@@ -216,6 +256,48 @@ test("driverApi.getVehicles and getProfile reload data from backend", async () =
   assert.equal(vehicles[0].vehiclePlate, "DK9999ZZ");
   assert.equal(vehicles[0].verificationStatus, "verified");
   assert.equal(vehicles[0].isActive, true);
+});
+
+test("driverApi.getActiveTrip maps passenger identity from the authorized trip response", async () => {
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return response({
+      id: "72",
+      status: "PICKING_UP",
+      vehicleType: "MOTOR",
+      pickup: { address: "Pickup", name: "Pickup", lat: -8.65, lng: 115.21 },
+      destination: { address: "Dropoff", name: "Dropoff", lat: -8.66, lng: 115.22 },
+      tripNotes: null,
+      estimatedDistanceKm: 3.2,
+      routeDistanceMeters: 3200,
+      estimatedDurationMin: 12,
+      estimatedDurationSeconds: 720,
+      estimatedFare: 12000,
+      routingProvider: "valhalla",
+      routeGeometry: "route",
+      fareConfigVersion: "test",
+      finalFare: null,
+      currencyCode: "IDR",
+      statusHistory: [],
+      createdAt: "2026-11-09T00:00:00Z",
+      updatedAt: "2026-11-09T00:01:00Z",
+      customerId: "15",
+      customerName: "Rina Penumpang",
+      customerPhone: "+6281234567890",
+    });
+  };
+
+  const activeTrip = await driverApi.getActiveTrip();
+
+  assert.equal(activeTrip.customerId, "15");
+  assert.equal(activeTrip.customerName, "Rina Penumpang");
+  assert.equal(activeTrip.customerPhone, "+6281234567890");
+  assert.equal(activeTrip.status, "PICKING_UP");
+  assert.equal(activeTrip.estimatedFare, 12000);
+  assert.equal(calls[0].url, "http://localhost:8080/drivers/me/trips/active");
+  assert.equal(calls[0].options.method, "GET");
+  assert.ok(calls[0].options.headers.Authorization.length > 10);
 });
 
 test("driverApi.registerVehicle handles vehicle conflict error", async () => {

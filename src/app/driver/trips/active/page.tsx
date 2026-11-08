@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { useAuth } from "@/lib/auth-context";
 import { SurfaceCard } from "@/components/ui/SurfaceCard";
 import { TactileButton } from "@/components/ui/TactileButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { TripTimeline } from "@/components/trip/TripTimeline";
-import { IllustrativeMap } from "@/components/booking/IllustrativeMap";
+import { RouteMap } from "@/components/booking/RouteMap";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { driverApi, bookingsApi } from "@/lib/api";
@@ -15,6 +15,7 @@ import { Booking, BookingStatus } from "@/types/booking";
 import { formatIDR, formatDateTime, getStatusLabel } from "@/lib/utils";
 import { useToast } from "@/components/ui/ToastNotification";
 import { useRouter } from "next/navigation";
+import type { EventStreamConnectionState } from "@/lib/auth-api";
 import {
   Car,
   Bike,
@@ -40,8 +41,10 @@ export default function DriverActiveTripPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [eventConnectionState, setEventConnectionState] =
+    useState<EventStreamConnectionState>("connecting");
 
-  const fetchActiveTrip = async () => {
+  const refreshActiveTrip = useCallback(async () => {
     setLoadError(null);
     try {
       const data = await driverApi.getActiveTrip();
@@ -50,14 +53,46 @@ export default function DriverActiveTripPage() {
       setLoadError(
         error instanceof Error ? error.message : "Perjalanan aktif tidak dapat dimuat."
       );
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, []);
+  const activeTripId = activeTrip?.id;
 
   useEffect(() => {
-    fetchActiveTrip();
-  }, [user]);
+    setIsLoading(true);
+    void refreshActiveTrip().finally(() => setIsLoading(false));
+  }, [refreshActiveTrip, user]);
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        refreshTimer = null;
+        void refreshActiveTrip();
+      }, 150);
+    };
+    const handleConnectionState = (state: EventStreamConnectionState) => {
+      setEventConnectionState(state);
+      if (state === "connected") scheduleRefresh();
+    };
+    const unsubscribe = activeTripId
+      ? bookingsApi.subscribeToTripUpdates(
+          activeTripId,
+          scheduleRefresh,
+          handleConnectionState
+        )
+      : driverApi.subscribeToAvailableOrderUpdates(
+          scheduleRefresh,
+          handleConnectionState
+        );
+
+    return () => {
+      unsubscribe();
+      if (refreshTimer) clearTimeout(refreshTimer);
+    };
+  }, [activeTripId, isLoading, refreshActiveTrip]);
 
   // Determine next status and button label
   const getNextTransition = (
@@ -79,7 +114,7 @@ export default function DriverActiveTripPage() {
       case "IN_PROGRESS":
         return {
           nextStatus: "COMPLETED",
-          label: "Sampai di Tujuan — Selesaikan Trip",
+          label: "Sampai di tujuan — selesaikan perjalanan",
           icon: <Flag className="w-5 h-5" />,
         };
       default:
@@ -147,7 +182,7 @@ export default function DriverActiveTripPage() {
           <div className="tactile-card p-8 text-center space-y-3">
             <div className="w-10 h-10 border-4 border-rf-blue/20 border-t-rf-blue rounded-full animate-spin mx-auto" />
             <p className="text-sm font-semibold text-rf-text">
-              Memeriksa tarikan aktif...
+              Memeriksa perjalanan aktif...
             </p>
           </div>
         </div>
@@ -166,7 +201,10 @@ export default function DriverActiveTripPage() {
                 variant="secondary"
                 size="sm"
                 className="mt-3"
-                onClick={fetchActiveTrip}
+                onClick={() => {
+                  setIsLoading(true);
+                  void refreshActiveTrip().finally(() => setIsLoading(false));
+                }}
               >
                 Coba Lagi
               </TactileButton>
@@ -175,8 +213,8 @@ export default function DriverActiveTripPage() {
             <EmptyState
               icon={<Car className="w-10 h-10" />}
               title="Tidak Ada Perjalanan Aktif"
-              description="Saat ini Anda belum menerima pesanan perjalanan yang sedang berlangsung. Cek radar order masuk untuk menerima penumpang baru."
-              actionLabel="Buka Radar Pesanan Masuk"
+              description="Saat ini belum ada pesanan perjalanan yang berlangsung. Buka daftar pesanan untuk melihat permintaan baru."
+              actionLabel="Lihat pesanan masuk"
               onAction={() => router.push("/driver/orders")}
             />
           )}
@@ -188,6 +226,14 @@ export default function DriverActiveTripPage() {
   return (
     <AppLayout allowedRole="DRIVER">
       <div className="max-w-5xl mx-auto space-y-6">
+        {loadError && (
+          <div
+            role="alert"
+            className="rounded-rf border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            Data perjalanan belum berhasil disegarkan: {loadError}
+          </div>
+        )}
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-slate-200">
           <div>
@@ -199,6 +245,22 @@ export default function DriverActiveTripPage() {
             </div>
             <p className="text-xs font-mono text-slate-500 mt-0.5">
               ID Pesanan: {activeTrip.id} • Diterima: {formatDateTime(activeTrip.updatedAt)}
+            </p>
+            <p
+              className={`mt-1 text-xs ${
+                eventConnectionState === "connected"
+                  ? "text-emerald-700"
+                  : eventConnectionState === "disconnected"
+                    ? "text-amber-700"
+                    : "text-slate-500"
+              }`}
+              aria-live="polite"
+            >
+              {eventConnectionState === "connected"
+                ? "Pembaruan langsung aktif"
+                : eventConnectionState === "disconnected"
+                  ? "Koneksi pembaruan langsung terputus"
+                  : "Menghubungkan pembaruan langsung..."}
             </p>
           </div>
 
@@ -260,8 +322,15 @@ export default function DriverActiveTripPage() {
                     <p className="text-xs text-rf-text-secondary">
                       {activeTrip.customerName
                         ? "Pelanggan RideFlow"
-                        : "Nama penumpang tidak tersedia"}
+                        : activeTrip.customerId
+                          ? `ID Penumpang: ${activeTrip.customerId}`
+                          : "Nama penumpang tidak tersedia"}
                     </p>
+                    {activeTrip.customerName && activeTrip.customerId && (
+                      <p className="text-xs text-slate-500">
+                        ID Penumpang: {activeTrip.customerId}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -271,7 +340,7 @@ export default function DriverActiveTripPage() {
                     className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-rf border border-emerald-200 text-xs font-bold shadow-sm transition-colors"
                   >
                     <Phone className="w-4 h-4" />
-                    <span>Hubungi</span>
+                    <span>Hubungi {activeTrip.customerPhone}</span>
                   </a>
                 )}
               </div>
@@ -342,11 +411,12 @@ export default function DriverActiveTripPage() {
             </SurfaceCard>
           </div>
 
-          {/* Right Column: Illustrative Map & Vehicle Dispatch Info */}
+          {/* Right Column: Map & Vehicle Dispatch Info */}
           <div className="md:col-span-5 space-y-4">
-            <IllustrativeMap
+            <RouteMap
               pickup={activeTrip.pickup}
               destination={activeTrip.destination}
+              routeGeometry={activeTrip.routeGeometry}
               className="h-56"
             />
 
@@ -367,13 +437,17 @@ export default function DriverActiveTripPage() {
                 <div className="flex justify-between py-1 border-b border-slate-100">
                   <span className="text-slate-500">Estimasi Jarak Tempuh:</span>
                   <span className="font-bold text-rf-navy">
-                    {activeTrip.estimatedDistanceKm} km
+                    {activeTrip.estimatedDistanceKm === null
+                      ? "Belum tersedia"
+                      : `${activeTrip.estimatedDistanceKm.toFixed(1)} km`}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-100">
                   <span className="text-slate-500">Perkiraan Waktu:</span>
                   <span className="font-bold text-rf-navy">
-                    ± {activeTrip.estimatedDurationMin} menit
+                    {activeTrip.estimatedDurationMin === null
+                      ? "Belum tersedia"
+                      : `± ${activeTrip.estimatedDurationMin} menit`}
                   </span>
                 </div>
                 <div className="flex justify-between py-1 pt-2">
@@ -394,7 +468,7 @@ export default function DriverActiveTripPage() {
       <ConfirmDialog
         isOpen={showCompleteDialog}
         title="Selesaikan Perjalanan Ini?"
-        description={`Pastikan Anda sudah mengantar penumpang ke tujuan (${activeTrip.destination.name}) dengan selamat. Tarif ${formatIDR(activeTrip.estimatedFare)} akan dicatat ke total tarikan Anda.`}
+        description={`Pastikan penumpang telah tiba di tujuan (${activeTrip.destination.name}). Tarif ${formatIDR(activeTrip.estimatedFare)} akan dicatat pada pendapatan perjalanan Anda.`}
         confirmLabel="Ya, Perjalanan Selesai"
         cancelLabel="Kembali"
         variant="primary"

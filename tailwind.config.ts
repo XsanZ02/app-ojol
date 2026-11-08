@@ -10,11 +10,11 @@ const config: Config = {
     extend: {
       colors: {
         rf: {
-          navy: "#14213D",
+          navy: "#172554",
           blue: "#2563EB",
           "blue-hover": "#1D4ED8",
           "blue-dark": "#1E40AF",
-          bg: "#F3F6FA",
+          bg: "#F3F6FC",
           surface: "#FFFFFF",
           "surface-alt": "#F8FAFC",
           "surface-muted": "#EEF2F6",
@@ -73,4 +73,3 @@ const config: Config = {
 };
 
 export default config;
-

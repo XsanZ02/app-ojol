@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AdminLayout } from "@/components/admin/AdminLayout";
 import { AdminEmpty, AdminError, AdminLoading, formatAdminDate, formatAdminMoney } from "@/components/admin/AdminTableUtils";
 import { AuthApiError, adminApi, type AdminDriverDetail } from "@/lib/auth-api";
+import { getApiStatusLabel } from "@/lib/utils";
 
 type State = { status: "loading" } | { status: "error"; message: string } | { status: "empty" } | { status: "success"; data: AdminDriverDetail };
 
@@ -47,7 +48,7 @@ export default function AdminDriverDetailPage({ params }: { params: { driverId: 
               <Info label="Status akun" value={state.data.driver.accountStatus} />
               <Info label="Status operasional" value={state.data.driver.operationalStatus} />
               <Info label="Ketersediaan" value={state.data.driver.online ? "Online" : "Offline"} />
-              <Info label="Order selesai" value={String(state.data.driver.completedTrips)} />
+              <Info label="Perjalanan selesai" value={String(state.data.driver.completedTrips)} />
               <Info label="Terdaftar" value={formatAdminDate(state.data.driver.createdAt)} />
               <Info label="Diperbarui" value={formatAdminDate(state.data.driver.updatedAt)} />
             </section>
@@ -69,7 +70,7 @@ export default function AdminDriverDetailPage({ params }: { params: { driverId: 
               {state.data.recentOrders.length === 0 ? <div className="p-4"><AdminEmpty>Belum ada perjalanan.</AdminEmpty></div> : (
                 <ul className="divide-y divide-slate-100">{state.data.recentOrders.map((order) => (
                   <li key={order.id} className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm">
-                    <div><Link href={`/admin/orders/${order.id}`} className="font-bold text-rf-blue hover:underline">Order #{order.id}</Link><p className="text-xs text-slate-500">{order.status} · {order.customerName} · {formatAdminDate(order.requestedAt)}</p></div>
+                    <div><Link href={`/admin/orders/${order.id}`} className="font-bold text-rf-blue hover:underline">Pesanan #{order.id}</Link><p className="text-xs text-slate-500">{getApiStatusLabel(order.status)} · {order.customerName} · {formatAdminDate(order.requestedAt)}</p></div>
                     <span className="font-semibold">{formatAdminMoney(order.finalFare ?? order.estimatedFare, order.currencyCode)}</span>
                   </li>
                 ))}</ul>

@@ -10,60 +10,107 @@ Built with **Next.js (App Router)**, **React**, **TypeScript**, and **Tailwind C
 
 ---
 
-## 🚀 Panduan Menjalankan Aplikasi
+## Panduan Menjalankan Frontend dan Backend (Windows)
 
-### 1. Prasyarat
-- Node.js v18+ atau v20+ (diuji pada v24.13.1)
-- NPM atau PNPM
-- Untuk autentikasi: backend Quarkus aktif dan PostgreSQL yang dikonfigurasi untuk backend
+Jalankan frontend dan backend di **dua jendela PowerShell terpisah**. Untuk
+fitur login dan pemesanan, backend serta database PostgreSQL harus aktif.
 
-### 2. Instalasi Dependensi
-```bash
+### Prasyarat
+
+- Node.js 18 atau lebih baru dan npm.
+- JDK 21 atau lebih baru (`java -version` dan `javac -version`).
+- PostgreSQL aktif di port `5432`, dengan database demo `rideflow_v4_test` dan
+  user `rideflow` yang sudah dikonfigurasi. Database utama `rideflow` bukan
+  target demo ini.
+- Skema database yang diperlukan sudah tersedia. Backend tidak menjalankan
+  migrasi Flyway otomatis; baca bagian database di
+  [backend/README.md](./backend/README.md) sebelum menyiapkan database.
+
+### 1. Siapkan dan jalankan backend
+
+Buka PowerShell pertama:
+
+```powershell
+cd "C:\PUNYA AGAS\app-ojol\backend"
+```
+
+Buat kunci JWT development **satu kali saja**. Perintah ini menyimpan kunci di
+folder profil pengguna, bukan di repository:
+
+```powershell
+$keys = Join-Path $env:USERPROFILE "rideflow-dev-keys"
+$classes = Join-Path $env:TEMP "rideflow-keygen"
+New-Item -ItemType Directory -Force -Path $keys, $classes | Out-Null
+javac -d $classes .\GenerateRideFlowKeys.java
+if ($LASTEXITCODE -ne 0) { throw "Gagal mengompilasi pembuat kunci JWT." }
+java -cp $classes GenerateRideFlowKeys $keys
+```
+
+Atur password PostgreSQL dan lokasi kunci, lalu mulai Quarkus:
+
+```powershell
+$env:DB_HOST = 'localhost'
+$env:DB_PORT = '5432'
+$env:DB_NAME = 'rideflow_v4_test'
+$env:DB_USERNAME = 'rideflow'
+$env:DB_PASSWORD = 'password PostgreSQL untuk user rideflow'
+$env:JWT_PRIVATE_KEY_LOCATION = Join-Path $env:USERPROFILE "rideflow-dev-keys\private.pem"
+$env:JWT_PUBLIC_KEY = Get-Content -Raw (Join-Path $env:USERPROFILE "rideflow-dev-keys\public.pem")
+.\mvnw.cmd quarkus:dev
+```
+
+Konfigurasi di atas memilih database demo `rideflow_v4_test`; ganti password
+dengan password lokal Anda. Tanpa `DB_NAME`, backend menggunakan default
+`rideflow`, yang mungkin memiliki versi schema berbeda. Biarkan jendela ini tetap
+terbuka. Backend berjalan di `http://localhost:8080`; Dev UI ada di
+`http://localhost:8080/q/dev/`. Hentikan dengan `Ctrl+C`. Jangan commit
+password atau kunci dan jangan gunakan kunci development untuk produksi.
+
+### 2. Siapkan dan jalankan frontend
+
+Buka PowerShell kedua dari folder proyek:
+
+```powershell
+cd "C:\PUNYA AGAS\app-ojol"
 npm install
 ```
 
-### 3. Konfigurasi API dan jalankan frontend
-Salin `.env.example` ke `.env.local` dan pastikan URL menunjuk ke backend Quarkus:
+Buat `.env.local` dari contoh jika file itu belum ada:
+
+```powershell
+if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }
+```
+
+Pastikan `.env.local` berisi URL backend berikut:
 
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:8080
 ```
 
-Variabel ini hanya berisi URL publik; jangan menaruh secret, private key, atau
-kredensial database pada variabel `NEXT_PUBLIC_*`.
-
-```bash
-npm run dev
-```
-Akses aplikasi melalui browser di: **[http://localhost:3000](http://localhost:3000)**
-
-### 4. Jalankan backend
-Ikuti [prasyarat database dan JWT backend](./backend/README.md#prerequisites).
-Dari PowerShell pada direktori `backend`, atur `DB_PASSWORD`,
-`JWT_PRIVATE_KEY_LOCATION`, dan `JWT_PUBLIC_KEY_LOCATION`, lalu jalankan:
+Jangan isi secret, private key, atau password database pada variabel
+`NEXT_PUBLIC_*`. Jalankan frontend:
 
 ```powershell
-.\mvnw.cmd quarkus:dev
+npm run dev
 ```
 
-Backend mendengarkan pada `http://localhost:8080`. CORS dibatasi ke
-`RIDEFLOW_FRONTEND_ORIGIN` yang default-nya `http://localhost:3000`; untuk
-deployment, atur variabel itu ke satu origin frontend yang tepat. Credentials
-CORS tidak diaktifkan karena autentikasi memakai bearer token.
-Database harus sudah memiliki skema yang telah disetujui; petunjuk ini tidak
-menjalankan migrasi development.
+Buka `http://localhost:3000`. Pertahankan kedua jendela PowerShell tetap
+berjalan selama aplikasi digunakan. CORS backend mengizinkan origin ini secara
+default.
 
-### 5. Build dan tes frontend
-```bash
+### Perintah frontend lainnya
+
+```powershell
 npm run lint
-npm run test:auth
+npm test
 npm run build
 npm start
 ```
 
-Autentikasi memakai akun yang terdaftar pada backend, bukan akun demo lokal.
-Tes frontend memakai Node.js test runner dan mock HTTP responses; ia tidak
-membutuhkan backend aktif.
+`npm start` menjalankan hasil build produksi, jadi jalankan `npm run build`
+terlebih dahulu. Autentikasi menggunakan akun yang terdaftar di backend.
+Pengaturan database, JWT, routing, dan tarif backend dijelaskan lebih lengkap
+di [backend/README.md](./backend/README.md).
 
 ---
 
@@ -83,7 +130,7 @@ membutuhkan backend aktif.
   - Sakelar fisik taktil (`AvailabilityToggle`) untuk status online/offline pengemudi.
   - Kartu sedikit terangkat dengan bayangan lembut dan sudut membulat 14–18px.
   - Format mata uang Rupiah Indonesia (`Rp25.000`) dan copywriting bahasa Indonesia yang alami.
-  - Peta ilustratif CSS/SVG dengan rute nyata kawasan Denpasar, Panjer, Renon, dan Sanur, Bali.
+  - Peta Leaflet/OpenStreetMap dengan titik lokasi dan geometri rute dari Valhalla.
 
 ---
 
@@ -92,7 +139,7 @@ membutuhkan backend aktif.
 - **Desktop (1440 × 1024)**:
   - Sidebar navigasi tetap di sebelah kiri (`AppSidebar`).
   - Header dengan logo, indikator peran dari backend, dan menu profil.
-  - Layout 2 kolom yang seimbang: formulir di sisi kiri, peta ilustratif di sisi kanan.
+  - Layout 2 kolom yang seimbang: formulir di sisi kiri, peta interaktif di sisi kanan.
 - **Mobile (390 × 844)**:
   - Header ringkas dengan logo dan indikator role akun.
   - Navigasi bawah taktil (`MobileBottomNavigation`) dengan target sentuh ≥ 48px.
@@ -108,8 +155,9 @@ membutuhkan backend aktif.
 2. **Pemesanan Perjalanan (Customer)**:
    - Dashboard dengan hero "Mau ke mana hari ini?".
    - Pilihan rute preset Denpasar/Sanur.
-   - Layar konfirmasi pesanan dengan kalkulasi estimasi tarif Motor vs Mobil (`FareService`).
-   - Pesanan disimpan lewat `POST /trips`; backend menghitung tarif dan mengembalikan status `PENDING`.
+   - Layar konfirmasi pesanan meminta estimasi rute Motor/Mobil dari `POST /routes/estimate`.
+   - Valhalla menghitung rute jalan; backend menentukan tarif dan menghitung ulang saat `POST /trips`.
+   - Route distance, durasi, geometri, provider, dan snapshot tarif disimpan bersama order.
 3. **Penerimaan Pesanan (Driver)**:
    - Dashboard mitra dengan sakelar online/offline fisik dan ringkasan pendapatan.
    - Radar pesanan masuk (`/drivers/me/orders`) menampilkan pesanan yang sesuai dengan status online, verifikasi, dokumen, dan kendaraan driver.
@@ -189,7 +237,7 @@ src/
 │   ├── auth-api.ts     (Client autentikasi Quarkus dan verifikasi /auth/me)
 │   ├── api.ts          (Client API trip, driver, dan profil)
 │   ├── auth-context.tsx(React Context untuk sesi dan autentikasi)
-│   ├── fare-service.ts (Kalkulator tarif dan jarak Haversine)
+│   ├── api.ts         (API estimasi rute, perjalanan, dan akun)
 │   ├── mock-data.ts    (Data rute Bali, driver, dan penumpang)
 │   ├── mock-storage.ts (State persistence non-sensitif & reactive listener)
 │   └── utils.ts        (Format IDR, format tanggal Indonesia, class merge)

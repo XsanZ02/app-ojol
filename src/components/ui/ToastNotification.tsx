@@ -43,10 +43,10 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            role="status"
-            aria-live="polite"
+            role={toast.type === "error" ? "alert" : "status"}
+            aria-live={toast.type === "error" ? "assertive" : "polite"}
             className={cn(
-              "pointer-events-auto flex items-center justify-between p-3.5 rounded-rf shadow-tactile-float border backdrop-blur-md transition-all animate-in slide-in-from-bottom-2 duration-200",
+              "pointer-events-auto flex items-center justify-between gap-3 p-3.5 rounded-rf shadow-tactile-float border backdrop-blur-md transition-all animate-in slide-in-from-bottom-2 duration-200",
               toast.type === "success" &&
                 "bg-emerald-950/90 text-white border-emerald-700/60",
               toast.type === "error" &&
@@ -88,4 +88,3 @@ export const useToast = () => {
   }
   return context;
 };
-

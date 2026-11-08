@@ -33,11 +33,11 @@ type DashboardState =
 
 const statisticCards = [
   { key: "totalUsers", label: "Total pengguna", icon: Users },
-  { key: "totalDrivers", label: "Total driver", icon: CarFront },
-  { key: "onlineDrivers", label: "Driver online", icon: CarFront },
-  { key: "totalOrders", label: "Total order", icon: ClipboardList },
-  { key: "activeOrders", label: "Order aktif", icon: BarChart3 },
-  { key: "completedOrders", label: "Order selesai", icon: ClipboardList },
+  { key: "totalDrivers", label: "Total mitra pengemudi", icon: CarFront },
+  { key: "onlineDrivers", label: "Mitra pengemudi aktif", icon: CarFront },
+  { key: "totalOrders", label: "Total pesanan", icon: ClipboardList },
+  { key: "activeOrders", label: "Pesanan aktif", icon: BarChart3 },
+  { key: "completedOrders", label: "Pesanan selesai", icon: ClipboardList },
 ] as const;
 
 export default function AdminDashboardPage() {
@@ -89,11 +89,11 @@ export default function AdminDashboardPage() {
               Dashboard Administrator
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-relaxed text-rf-text-secondary">
-              Statistik operasional dan transaksi yang tercatat di backend.
+              Statistik operasional dan transaksi RideFlow.
             </p>
           </div>
           <div className="rounded-rf border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">
-            Admin: {user?.name}
+            Administrator: {user?.name}
           </div>
         </section>
 
@@ -146,7 +146,7 @@ export default function AdminDashboardPage() {
                       {formatAdminMoney(state.data.revenue)}
                     </p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Hanya transaksi berstatus succeeded
+                      Hanya transaksi berhasil yang dihitung
                     </p>
                   </div>
                   <span className="rounded-rf bg-emerald-50 p-2.5 text-emerald-700">
@@ -160,18 +160,18 @@ export default function AdminDashboardPage() {
               <SurfaceCard elevation="subtle" className="overflow-hidden">
                 <div className="flex items-center justify-between border-b border-slate-100 p-5">
                   <div>
-                    <h2 className="font-extrabold text-rf-navy">Order terbaru</h2>
+                    <h2 className="font-extrabold text-rf-navy">Pesanan terbaru</h2>
                     <p className="mt-1 text-xs text-rf-text-secondary">
                       Ringkasan dari perjalanan terbaru.
                     </p>
                   </div>
                   <Link href="/admin/orders" className="text-xs font-bold text-rf-blue hover:underline">
-                    Semua order
+                    Semua pesanan
                   </Link>
                 </div>
                 {state.data.recentOrders.length === 0 ? (
                   <div className="p-4">
-                    <AdminEmpty>Belum ada order.</AdminEmpty>
+                    <AdminEmpty>Belum ada pesanan.</AdminEmpty>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">

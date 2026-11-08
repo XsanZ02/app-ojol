@@ -401,7 +401,7 @@ export default function DriverProfilePage() {
                   <span>{driverProfile?.rating ?? 5.0}</span>
                 </div>
                 <span>•</span>
-                <span>{driverProfile?.completedTrips ?? 0} Trip Selesai</span>
+                <span>{driverProfile?.completedTrips ?? 0} perjalanan selesai</span>
               </div>
             </div>
           </div>

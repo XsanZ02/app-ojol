@@ -24,6 +24,45 @@ $env:DB_PASSWORD = '<the password configured for your local rideflow database>'
 You can also override `DB_HOST`, `DB_PORT`, `DB_NAME`, and `DB_USERNAME` with
 environment variables. Do not put database passwords in source files.
 
+The default database is `rideflow`, not the demo database. To run the demo
+against `rideflow_v4_test` (after its schema has been prepared through V6), set
+the datasource target explicitly in the same PowerShell window used to start
+Quarkus:
+
+```powershell
+$env:DB_HOST = 'localhost'
+$env:DB_PORT = '5432'
+$env:DB_NAME = 'rideflow_v4_test'
+$env:DB_USERNAME = 'rideflow'
+$env:DB_PASSWORD = '<the password configured for your local rideflow database>'
+.\mvnw.cmd quarkus:dev
+```
+
+Changing only `DB_PASSWORD` does not select a database. Quarkus does not apply
+Flyway migrations automatically on startup; check the target database and its
+Flyway history before running the API.
+
+Routing and pricing are configured on the backend, not through browser-visible
+`NEXT_PUBLIC_*` variables. `VALHALLA_ROUTING_URL` defaults to the demo endpoint
+`https://valhalla1.openstreetmap.de/route`; set it to a self-hosted Valhalla
+instance for deployment. `ROUTING_TIMEOUT_SECONDS` defaults to `8`.
+
+Default demo fares use actual route distance in meters, prorate each kilometer,
+then round the final amount to the nearest whole rupiah (half up):
+
+| Vehicle | Base fare | Per kilometer | Minimum fare |
+| --- | ---: | ---: | ---: |
+| Motor | Rp5,000 | Rp2,000 | Rp8,000 |
+| Mobil | Rp8,000 | Rp3,500 | Rp12,000 |
+
+Set `FARE_MOTOR_BASE_FARE`, `FARE_MOTOR_PER_KILOMETER`,
+`FARE_MOTOR_MINIMUM_FARE`, `FARE_CAR_BASE_FARE`,
+`FARE_CAR_PER_KILOMETER`, and `FARE_CAR_MINIMUM_FARE` to override the
+backend configuration. `FARE_CURRENCY` and `FARE_CONFIG_VERSION` default to
+`IDR` and `demo-v2-vehicle`. The backend recalculates fare from the routed
+distance when creating an order; client-supplied prices are never trusted.
+The selected fare inputs and config version are persisted with each trip.
+
 Flyway migrations are under `src/main/resources/db/migration`. V4 validates
 and records a complete verification schema that was materialized before its
 Flyway history entry, applies the DDL on a clean V3 database, and fails
@@ -51,14 +90,15 @@ production-managed RSA key pair outside source control:
 
 ```powershell
 $env:JWT_PRIVATE_KEY_LOCATION = 'C:\secure\rideflow\jwt-private.pem'
-$env:JWT_PUBLIC_KEY_LOCATION = 'C:\secure\rideflow\jwt-public.pem'
+$env:JWT_PUBLIC_KEY = Get-Content -Raw 'C:\secure\rideflow\jwt-public.pem'
 $env:JWT_ISSUER = 'rideflow'
 $env:JWT_AUDIENCE = 'rideflow-api'
 $env:JWT_TTL_SECONDS = '900'
 ```
 
-The private key must be PKCS#8 PEM and the public key X.509 SubjectPublicKeyInfo
-PEM. Never commit either key or include JWTs/passwords in logs. Login's
+The private key must be PKCS#8 PEM. `JWT_PUBLIC_KEY` must contain the public
+key's X.509 SubjectPublicKeyInfo PEM text; provide the file contents, not its
+path. Never commit either key or include JWTs/passwords in logs. Login's
 ``rememberMe` field is accepted for compatibility but does not extend token
 lifetime; refresh/revocation support is not implemented. The frontend validates
 the same 12–72 UTF-8 byte password range before submission.
@@ -166,32 +206,54 @@ clients cannot choose a rider or driver ID:
   active, verified vehicle types; it also requires approved verification,
   current required documents, online status, and no unreleased hold when the
   V4 gate is enabled.
+- `GET /drivers/me/orders/events` streams order-change events to a driver who
+  passes the same eligibility check. The event contains only a matching
+  vehicle type; the client reloads the authorized order list.
 - `POST /trips/{tripId}/accept` locks the trip, selects an eligible matching
   vehicle, and conditionally assigns the order in the same transaction.
 - `POST /trips/{tripId}/picking-up`, `/start`, and `/complete` perform the
   assigned driver's ordered status transitions.
+- `GET /trips/{tripId}/events` streams updates only to a customer or assigned
+  driver authorized to read that trip. Create, accept, cancel, and progress
+  events are published after the database transaction completes. The client
+  reloads the trip through `GET /trips/{tripId}` as the source of truth.
+
+These event streams use authenticated Server-Sent Events (SSE) and require the
+JWT in the `Authorization` header. Subscribers are held in backend process
+memory; multi-instance deployments need sticky routing or a shared event
+broker to deliver events across instances. Reconnecting clients re-read the
+trip/order API to recover from missed events. Assigned trip responses include
+the driver's available name, phone, and vehicle details; no customer contact
+details or account IDs are exposed.
 
 Trip IDs in responses are decimal strings representing the existing database
 `BIGINT` IDs; no `RF-...` public-ID format is defined. The frontend must use the
 ID returned by `POST /trips` unchanged for detail, cancel, and history links.
 Malformed or unknown IDs return `404`.
 
+`POST /routes/estimate` accepts pickup/destination coordinates and an optional
+`vehicleType`, calls the configured Valhalla provider (`motor_scooter` for
+motorcycles, `auto` for cars), and returns route distance in meters, duration
+in seconds, encoded route geometry, and the backend-calculated fare. It does
+not create a trip.
+
 Trip creation accepts `pickupAddress`, `pickupLatitude`, `pickupLongitude`,
 `destinationAddress`, `destinationLatitude`, `destinationLongitude`,
 `vehicleType` (`MOTOR`/`MOBIL` or `motorcycle`/`car`), and optional
-`currencyCode` (only `IDR` is currently supported). The server calculates
-distance, duration, and fare using the same Haversine road-factor and tariff
-formula as the current frontend mock. Any client-supplied fare is ignored.
-Completion records the server-calculated estimated fare as `final_fare`.
+`currencyCode` (only `IDR` is currently supported). The backend recalculates
+the route and fare during creation; client-supplied distance or fare is ignored.
+The V5 migration stores the route distance, estimated duration, geometry,
+provider, and fare-configuration snapshot on the existing `trips` record. V6
+adds the optional driver note to the trip record.
+Completion records the persisted server-calculated estimated fare as
+`final_fare`.
 Status values in the API map database `requested` to frontend `PENDING`.
 
-The customer booking client sends endpoint coordinates from its existing
-predefined location choices and does not send client-calculated fares. The
-backend computes the authoritative fare and does not persist location display
-names or trip notes because V1 has no corresponding columns. The frontend
-therefore prevents submitting unrecognized free-text locations without
-coordinates and explicitly reports that notes cannot be saved. Trip responses
-omit customer/driver email, phone, and account IDs.
+The customer booking client sends map-selected coordinates and optional trip
+notes, and does not send client-calculated fares. The backend computes the
+authoritative fare and does not persist location display names. Trip responses
+omit email and account IDs; assigned driver contact and vehicle details are
+returned only to authorized trip participants.
 
 Trip acceptance locks the requested trip row and uses a conditional update,
 so only one concurrent driver can claim it. Driver eligibility and a matching

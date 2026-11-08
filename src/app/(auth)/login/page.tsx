@@ -79,13 +79,13 @@ export default function LoginPage() {
             <div className="mt-12 space-y-4">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 border border-white/20 text-xs font-semibold text-blue-200">
                 <Compass className="w-3.5 h-3.5" />
-                <span>Bali Ride Experience</span>
+                <span>Layanan perjalanan di Bali</span>
               </div>
               <h2 className="text-3xl font-extrabold tracking-tight leading-tight">
-                Layanan Mobilitas Modern & Berbobot Nyata.
+                Layanan perjalanan untuk aktivitas Anda.
               </h2>
               <p className="text-sm text-slate-300 leading-relaxed">
-                Antarmuka skeuomorfik presisi dengan kontrol sentuh taktil untuk penumpang dan mitra pengemudi di Denpasar, Panjer, Renon, dan Sanur.
+                Pesan perjalanan dengan mudah dan pantau perjalanan Anda di kawasan Denpasar, Panjer, Renon, dan Sanur.
               </p>
             </div>
           </div>
@@ -94,10 +94,10 @@ export default function LoginPage() {
           <div className="relative z-10 p-4 rounded-rf bg-white/10 backdrop-blur-md border border-white/15 space-y-2">
             <div className="flex items-center gap-2 text-xs font-bold text-blue-200">
               <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span>Autentikasi Terverifikasi oleh Quarkus</span>
+              <span>Akun Anda terlindungi</span>
             </div>
             <p className="text-xs text-slate-300">
-              Login dan registrasi memakai backend; data perjalanan dan profil masih berupa prototipe lokal.
+          Akses akun dan pantau perjalanan Anda dengan mudah.
             </p>
           </div>
         </div>

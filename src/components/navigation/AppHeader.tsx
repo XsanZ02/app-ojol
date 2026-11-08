@@ -11,7 +11,7 @@ export const AppHeader: React.FC = () => {
   const isDriver = user?.role === "DRIVER";
 
   return (
-    <header className="sticky top-0 z-40 w-full bg-white/95 backdrop-blur-md border-b border-slate-200/90 shadow-[0_1px_3px_rgba(20,33,61,0.03)] h-16 flex items-center justify-between px-4 lg:px-8">
+    <header className="rf-glass-surface sticky top-0 z-40 flex h-16 w-full items-center justify-between border-x-0 border-t-0 px-4 lg:px-8">
       <div className="flex items-center gap-3">
         <Link
           href={isDriver ? "/driver/dashboard" : "/customer/dashboard"}
@@ -24,8 +24,8 @@ export const AppHeader: React.FC = () => {
             <span className="font-extrabold text-lg tracking-tight text-rf-navy flex items-center gap-1">
               Ride<span className="text-rf-blue">Flow</span>
             </span>
-            <span className="text-[10px] font-semibold tracking-wider uppercase text-rf-text-secondary -mt-1 hidden sm:block">
-              Modern Skeuomorphic Mobility
+            <span className="text-[10px] font-semibold tracking-wide text-rf-text-secondary -mt-1 hidden sm:block">
+              Perjalanan nyaman, setiap saat
             </span>
           </div>
         </Link>
@@ -72,8 +72,8 @@ export const AppHeader: React.FC = () => {
         <button
           onClick={() => logout()}
           className="w-9 h-9 rounded-rf text-slate-500 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center transition-colors border border-transparent hover:border-rose-100"
-          title="Keluar (Logout)"
-          aria-label="Logout"
+          title="Keluar dari akun"
+          aria-label="Keluar dari akun RideFlow"
         >
           <LogOut className="w-4 h-4" />
         </button>

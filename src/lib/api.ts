@@ -2,12 +2,18 @@ import {
   Booking,
   BookingRequest,
   BookingStatus,
+  RouteEstimate,
   StatusHistoryItem,
 } from "@/types/booking";
 import type { VehicleType } from "@/types/driver";
 import { User } from "@/types/user";
 import { MockStorage } from "./mock-storage";
-import { AuthApiError, authenticatedRequest } from "./auth-api";
+import {
+  AuthApiError,
+  authenticatedRequest,
+  subscribeToAuthenticatedEvents,
+  type EventStreamConnectionState,
+} from "./auth-api";
 
 /**
  * Artificial delay to simulate network latency in prototype mode
@@ -20,14 +26,27 @@ interface ApiTrip {
   vehicleType: string;
   pickup: { address: string; name: string; lat: number; lng: number };
   destination: { address: string; name: string; lat: number; lng: number };
-  estimatedDistanceKm: number;
-  estimatedDurationMin: number;
+  tripNotes: string | null;
+  estimatedDistanceKm: number | null;
+  routeDistanceMeters: number | null;
+  estimatedDurationMin: number | null;
+  estimatedDurationSeconds: number | null;
   estimatedFare: number;
+  routingProvider: string | null;
+  routeGeometry: string | null;
+  fareConfigVersion: string | null;
   finalFare: number | null;
   currencyCode: string;
   statusHistory: { status: string; timestamp: string; note: string | null }[];
   createdAt: string;
   updatedAt: string;
+  customerId?: string | null;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  driverName?: string | null;
+  driverPhone?: string | null;
+  vehicleModel?: string | null;
+  vehiclePlate?: string | null;
 }
 
 export interface DriverApiProfile {
@@ -125,11 +144,24 @@ function mapTrip(value: ApiTrip): Booking {
       lat: value.destination.lat,
       lng: value.destination.lng,
     },
-    estimatedDistanceKm: value.estimatedDistanceKm,
+    ...(value.tripNotes ? { tripNotes: value.tripNotes } : {}),
+    ...(value.customerId ? { customerId: value.customerId } : {}),
+    ...(value.customerName ? { customerName: value.customerName } : {}),
+    ...(value.customerPhone ? { customerPhone: value.customerPhone } : {}),
+    estimatedDistanceKm: value.estimatedDistanceKm ?? null,
+    routeDistanceMeters: value.routeDistanceMeters,
     estimatedDurationMin: value.estimatedDurationMin,
+    estimatedDurationSeconds: value.estimatedDurationSeconds,
     estimatedFare: value.estimatedFare,
+    routingProvider: value.routingProvider,
+    routeGeometry: value.routeGeometry,
+    fareConfigVersion: value.fareConfigVersion,
     ...(value.finalFare !== null ? { finalFare: value.finalFare } : {}),
     currencyCode: value.currencyCode,
+    ...(value.driverName ? { driverName: value.driverName } : {}),
+    ...(value.driverPhone ? { driverPhone: value.driverPhone } : {}),
+    ...(value.vehicleModel ? { vehicleModel: value.vehicleModel } : {}),
+    ...(value.vehiclePlate ? { vehiclePlate: value.vehiclePlate } : {}),
     status,
     statusHistory: history,
     createdAt: value.createdAt,
@@ -250,6 +282,7 @@ export const bookingsApi = {
         destinationLatitude: req.destinationLatitude,
         destinationLongitude: req.destinationLongitude,
         vehicleType: req.vehicleType,
+        tripNotes: req.tripNotes?.trim() || null,
         currencyCode: "IDR",
       },
     });
@@ -317,6 +350,36 @@ export const bookingsApi = {
     );
     return mapTrip(trip);
   },
+
+  subscribeToTripUpdates(
+    bookingId: string,
+    onUpdate: () => void,
+    onConnectionState: (state: EventStreamConnectionState) => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    return subscribeToAuthenticatedEvents(
+      `/trips/${encodeURIComponent(bookingId)}/events`,
+      onUpdate,
+      onConnectionState,
+      onError
+    );
+  },
+};
+
+export const routesApi = {
+  async estimate(input: {
+    pickupLatitude: number;
+    pickupLongitude: number;
+    destinationLatitude: number;
+    destinationLongitude: number;
+    vehicleType: VehicleType;
+  }): Promise<RouteEstimate> {
+    const response = await authenticatedRequest<Omit<RouteEstimate, "vehicleType">>(
+      "/routes/estimate",
+      { method: "POST", body: input }
+    );
+    return { ...response, vehicleType: input.vehicleType };
+  },
 };
 
 /**
@@ -324,6 +387,19 @@ export const bookingsApi = {
  * Communicates with Quarkus /drivers/...
  */
 export const driverApi = {
+  subscribeToAvailableOrderUpdates(
+    onUpdate: () => void,
+    onConnectionState: (state: EventStreamConnectionState) => void,
+    onError?: (error: Error) => void
+  ): () => void {
+    return subscribeToAuthenticatedEvents(
+      "/drivers/me/orders/events",
+      onUpdate,
+      onConnectionState,
+      onError
+    );
+  },
+
   async getProfile(): Promise<DriverApiProfile> {
     return authenticatedRequest("/drivers/me/profile", { method: "GET" });
   },

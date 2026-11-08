@@ -22,7 +22,8 @@ public final class TripRequests {
             @NotNull @DecimalMin("-90.0") @DecimalMax("90.0") BigDecimal destinationLatitude,
             @NotNull @DecimalMin("-180.0") @DecimalMax("180.0") BigDecimal destinationLongitude,
             @NotBlank @Size(max = 16) String vehicleType,
-            @Pattern(regexp = "IDR") String currencyCode) {
+            @Pattern(regexp = "IDR") String currencyCode,
+            @Size(max = 500) String tripNotes) {
     }
 
     public record Cancel(@Size(max = 500) String reason) {

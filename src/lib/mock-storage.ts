@@ -5,10 +5,9 @@ import {
   INITIAL_BOOKINGS,
   INITIAL_CUSTOMERS,
   INITIAL_DRIVERS,
-  MOCK_LOCATIONS,
 } from "./mock-data";
-import { FareService } from "./fare-service";
 import { generateBookingId } from "./utils";
+import type { RouteEstimate } from "@/types/booking";
 
 const STORAGE_KEYS = {
   BOOKINGS: "rideflow_bookings",
@@ -210,32 +209,24 @@ export class MockStorage {
    */
   static createBooking(
     req: BookingRequest,
-    customer: User
+    customer: User,
+    estimate: RouteEstimate
   ): Booking {
-    // Resolve coordinates from mock locations or pick reasonable defaults
-    const pickupLoc =
-      MOCK_LOCATIONS.find(
-        (l) => l.name.toLowerCase() === req.pickupAddress.toLowerCase()
-      ) || {
-        name: req.pickupName || req.pickupAddress,
-        address: req.pickupAddress,
-        district: "Denpasar",
-        lat: -8.6738,
-        lng: 115.2392,
-      };
-
-    const destLoc =
-      MOCK_LOCATIONS.find(
-        (l) => l.name.toLowerCase() === req.destinationAddress.toLowerCase()
-      ) || {
-        name: req.destinationName || req.destinationAddress,
-        address: req.destinationAddress,
-        district: "Sanur",
-        lat: -8.6755,
-        lng: 115.2635,
-      };
-
-    const estimate = FareService.getEstimate(pickupLoc, destLoc, req.vehicleType);
+    if (estimate.vehicleType !== req.vehicleType) {
+      throw new Error("Estimasi rute tidak sesuai dengan jenis kendaraan.");
+    }
+    const pickupLoc = {
+      name: req.pickupName || req.pickupAddress,
+      address: req.pickupAddress,
+      lat: req.pickupLatitude,
+      lng: req.pickupLongitude,
+    };
+    const destLoc = {
+      name: req.destinationName || req.destinationAddress,
+      address: req.destinationAddress,
+      lat: req.destinationLatitude,
+      lng: req.destinationLongitude,
+    };
     const now = new Date().toISOString();
 
     const newBooking: Booking = {
@@ -248,8 +239,13 @@ export class MockStorage {
       destination: destLoc,
       tripNotes: req.tripNotes?.trim() || undefined,
       estimatedDistanceKm: estimate.distanceKm,
-      estimatedDurationMin: estimate.durationMin,
+      routeDistanceMeters: estimate.distanceMeters,
+      estimatedDurationMin: Math.ceil(estimate.durationSeconds / 60),
+      estimatedDurationSeconds: estimate.durationSeconds,
       estimatedFare: estimate.estimatedFare,
+      routingProvider: estimate.routingProvider,
+      routeGeometry: estimate.routeGeometry,
+      fareConfigVersion: estimate.fareConfigVersion,
       status: "PENDING",
       statusHistory: [
         {

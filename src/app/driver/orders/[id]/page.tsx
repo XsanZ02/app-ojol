@@ -6,7 +6,7 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { SurfaceCard } from "@/components/ui/SurfaceCard";
 import { TactileButton } from "@/components/ui/TactileButton";
 import { StatusBadge } from "@/components/ui/StatusBadge";
-import { IllustrativeMap } from "@/components/booking/IllustrativeMap";
+import { RouteMap } from "@/components/booking/RouteMap";
 import { bookingsApi, driverApi } from "@/lib/api";
 import { Booking } from "@/types/booking";
 import { formatIDR, formatDateTime } from "@/lib/utils";
@@ -221,11 +221,34 @@ export default function DriverOrderDetailsPage() {
           </div>
 
           <div className="md:col-span-5 space-y-4">
-            <IllustrativeMap
+            <RouteMap
               pickup={order.pickup}
               destination={order.destination}
+              routeGeometry={order.routeGeometry}
               className="h-56"
             />
+            <SurfaceCard className="grid grid-cols-2 gap-3 p-4 text-center text-xs">
+              <div>
+                <span className="block text-[10px] font-bold uppercase text-slate-400">
+                  Jarak Rute
+                </span>
+                <span className="font-bold text-rf-navy">
+                  {order.estimatedDistanceKm === null
+                    ? "Belum tersedia"
+                    : `${order.estimatedDistanceKm.toFixed(1)} km`}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[10px] font-bold uppercase text-slate-400">
+                  Estimasi Waktu
+                </span>
+                <span className="font-bold text-rf-navy">
+                  {order.estimatedDurationMin === null
+                    ? "Belum tersedia"
+                    : `± ${order.estimatedDurationMin} menit`}
+                </span>
+              </div>
+            </SurfaceCard>
           </div>
         </div>
       </div>

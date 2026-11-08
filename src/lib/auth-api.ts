@@ -132,6 +132,139 @@ export async function authenticatedRequest<T>(
   }
 }
 
+export type EventStreamConnectionState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "disconnected";
+
+export function subscribeToAuthenticatedEvents(
+  path: string,
+  onEvent: (event: unknown) => void,
+  onConnectionState: (state: EventStreamConnectionState) => void,
+  onError?: (error: Error) => void
+): () => void {
+  const controller = new AbortController();
+  let hasConnected = false;
+  let retryDelayMs = 1000;
+
+  const waitBeforeReconnect = () =>
+    new Promise<void>((resolve) => {
+      const onAbort = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        controller.signal.removeEventListener("abort", onAbort);
+        resolve();
+      }, retryDelayMs);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+    });
+
+  const dispatchFrame = (frame: string) => {
+    const data = frame
+      .replace(/\r\n/g, "\n")
+      .split("\n")
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).replace(/^ /, ""))
+      .join("\n");
+    if (data) onEvent(JSON.parse(data));
+  };
+
+  const readStream = async (response: Response) => {
+    if (!response.body) {
+      throw new AuthApiError("Server tidak menyediakan stream pembaruan.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (!controller.signal.aborted) {
+        const { done, value } = await reader.read();
+        if (value) buffer += decoder.decode(value, { stream: !done });
+        if (done) {
+          buffer += decoder.decode();
+          if (buffer.trim()) dispatchFrame(buffer);
+          throw new Error("Koneksi pembaruan langsung terputus.");
+        }
+
+        let boundary = /\r?\n\r?\n/.exec(buffer);
+        while (boundary) {
+          dispatchFrame(buffer.slice(0, boundary.index));
+          buffer = buffer.slice(boundary.index + boundary[0].length);
+          boundary = /\r?\n\r?\n/.exec(buffer);
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  };
+
+  const run = async () => {
+    while (!controller.signal.aborted) {
+      onConnectionState(hasConnected ? "reconnecting" : "connecting");
+      const token = getToken();
+      if (!token) {
+        onConnectionState("disconnected");
+        onError?.(
+          new AuthApiError(
+            "Sesi login telah berakhir. Silakan masuk kembali.",
+            401,
+            "unauthorized"
+          )
+        );
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_BASE_URL}${path}`, {
+          method: "GET",
+          headers: {
+            Accept: "text/event-stream",
+            Authorization: `Bearer ${token}`,
+          },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          let payload: unknown;
+          try {
+            payload = text ? JSON.parse(text) : undefined;
+          } catch {
+            payload = undefined;
+          }
+          throw toApiError(response.status, payload, path);
+        }
+        if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+          throw new AuthApiError("Server mengirim stream pembaruan yang tidak valid.");
+        }
+
+        hasConnected = true;
+        retryDelayMs = 1000;
+        onConnectionState("connected");
+        await readStream(response);
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (
+          error instanceof AuthApiError &&
+          (error.status === 401 || error.status === 403)
+        ) {
+          onConnectionState("disconnected");
+          onError?.(error);
+          return;
+        }
+        retryDelayMs = Math.min(retryDelayMs * 2, 15000);
+        onConnectionState("reconnecting");
+        await waitBeforeReconnect();
+      }
+    }
+  };
+
+  void run();
+  return () => controller.abort();
+}
+
 export async function authenticatedBlobRequest(path: string): Promise<Blob> {
   const token = getToken();
   if (!token) {
@@ -519,6 +652,20 @@ function toApiError(
   ) {
     return new AuthApiError(
       "Data tidak valid. Periksa kembali isian dan ketentuan kata sandi.",
+      status,
+      code
+    );
+  }
+  if (code === "routing_unavailable") {
+    return new AuthApiError(
+      "Layanan perhitungan rute sedang tidak merespons. Coba estimasi rute lagi.",
+      status,
+      code
+    );
+  }
+  if (code === "trip_operation_failed") {
+    return new AuthApiError(
+      "Pemesanan belum berhasil. Silakan coba kembali beberapa saat lagi.",
       status,
       code
     );

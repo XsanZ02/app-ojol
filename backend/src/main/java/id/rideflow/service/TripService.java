@@ -11,7 +11,6 @@ import org.jboss.logging.Logger;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -20,49 +19,52 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class TripService {
 
     private static final Logger LOG = Logger.getLogger(TripService.class);
-    private static final BigDecimal EARTH_RADIUS_KM = BigDecimal.valueOf(6371);
-    private static final BigDecimal MOTOR_BASE_FARE = BigDecimal.valueOf(9000);
-    private static final BigDecimal CAR_BASE_FARE = BigDecimal.valueOf(18000);
-    private static final BigDecimal MOTOR_RATE_PER_KM = BigDecimal.valueOf(2500);
-    private static final BigDecimal CAR_RATE_PER_KM = BigDecimal.valueOf(5000);
-    private static final BigDecimal BASE_DISTANCE_KM = BigDecimal.valueOf(2);
-    private static final BigDecimal ROAD_FACTOR = BigDecimal.valueOf(1.35);
-    private static final BigDecimal MIN_DISTANCE_KM = BigDecimal.valueOf(1.2);
-    private static final BigDecimal HALF_THOUSAND = BigDecimal.valueOf(500);
-    private static final double DEGREE_TO_RADIAN = Math.PI / 180.0;
-
     @Inject
     DataSource dataSource;
 
     @Inject
     DriverEligibilityService driverEligibilityService;
 
+    @Inject
+    RouteService routeService;
+
+    @Inject
+    FareCalculationService fareCalculationService;
+
     @Transactional
     public TripResponses.Trip create(String subject, TripRequests.Create request) {
         long customerId = parseSubject(subject);
         String vehicleType = normalizeVehicleType(request.vehicleType());
-        String currency = request.currencyCode() == null ? "IDR" : request.currencyCode();
         validateCoordinates(request);
-        BigDecimal distance = estimateDistance(
-                request.pickupLatitude(), request.pickupLongitude(),
-                request.destinationLatitude(), request.destinationLongitude());
-        BigDecimal fare = calculateFare(distance, vehicleType);
-        int duration = estimateDuration(distance, vehicleType);
+        String tripNotes = request.tripNotes() == null || request.tripNotes().isBlank()
+                ? null
+                : request.tripNotes().trim();
 
         try (Connection connection = dataSource.getConnection()) {
             requireAccountRole(connection, customerId, "customer");
+            LOG.infof("Creating trip for customerId=%d vehicleType=%s", customerId, vehicleType);
+            RouteService.Route route = routeService.estimate(
+                    request.pickupLatitude(), request.pickupLongitude(),
+                    request.destinationLatitude(), request.destinationLongitude(), vehicleType);
+            FareCalculationService.Fare fare = fareCalculationService.calculate(route.distanceMeters(), vehicleType);
+            LOG.infof("Calculated trip estimate for customerId=%d vehicleType=%s routeDistanceMeters=%d fare=%s %s",
+                    customerId, vehicleType, route.distanceMeters(), fare.amount().toPlainString(), fare.currency());
             long tripId;
             try (PreparedStatement statement = connection.prepareStatement(
                     "INSERT INTO trips (rider_user_id, vehicle_type, pickup_address, pickup_latitude, "
                             + "pickup_longitude, dropoff_address, dropoff_latitude, dropoff_longitude, "
-                            + "status, estimated_fare, currency_code) "
-                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?) RETURNING id")) {
+                            + "trip_notes, status, estimated_fare, currency_code, route_distance_meters, "
+                            + "estimated_duration_seconds, route_geometry, routing_provider, fare_base_amount, "
+                            + "fare_per_kilometer, fare_minimum_amount, fare_config_version) "
+                            + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                            + "RETURNING id")) {
                 statement.setLong(1, customerId);
                 statement.setString(2, vehicleType);
                 statement.setString(3, request.pickupAddress().trim());
@@ -71,8 +73,17 @@ public class TripService {
                 statement.setString(6, request.destinationAddress().trim());
                 statement.setBigDecimal(7, request.destinationLatitude());
                 statement.setBigDecimal(8, request.destinationLongitude());
-                statement.setBigDecimal(9, fare);
-                statement.setString(10, currency);
+                statement.setString(9, tripNotes);
+                statement.setBigDecimal(10, fare.amount());
+                statement.setString(11, fare.currency());
+                statement.setLong(12, route.distanceMeters());
+                statement.setInt(13, route.durationSeconds());
+                statement.setString(14, route.geometry());
+                statement.setString(15, route.provider());
+                statement.setBigDecimal(16, fare.baseFare());
+                statement.setBigDecimal(17, fare.farePerKilometer());
+                statement.setBigDecimal(18, fare.minimumFare());
+                statement.setString(19, fare.configVersion());
                 try (ResultSet result = statement.executeQuery()) {
                     if (!result.next()) {
                         throw new IllegalStateException("Trip insert did not return an id");
@@ -81,12 +92,15 @@ public class TripService {
                 }
             }
             insertStatusHistory(connection, tripId, null, "requested", customerId, null);
-            return loadTrip(connection, tripId, distance, duration);
+            LOG.infof("Created trip id=%d customerId=%d vehicleType=%s fare=%s %s",
+                    tripId, customerId, vehicleType, fare.amount().toPlainString(), fare.currency());
+            return loadTrip(connection, tripId);
         } catch (SQLException exception) {
             if ("23514".equals(exception.getSQLState())) {
+                LOG.warn("Trip creation rejected by a database check constraint (SQLSTATE=23514)", exception);
                 throw invalidTrip();
             }
-            throw databaseFailure(exception);
+            throw databaseFailure("create", exception);
         }
     }
 
@@ -219,11 +233,7 @@ public class TripService {
     public List<TripResponses.Trip> availableOrders(String subject) {
         long driverId = parseSubject(subject);
         try (Connection connection = dataSource.getConnection()) {
-            List<String> eligibleVehicleTypes =
-                    driverEligibilityService.findEligibleVehicleTypes(connection, driverId, true);
-            if (eligibleVehicleTypes.isEmpty()) {
-                throw driverNotEligible();
-            }
+            List<String> eligibleVehicleTypes = findEligibleOrderVehicleTypes(connection, driverId);
             List<Long> tripIds = new ArrayList<>();
             String vehicleTypePlaceholders = eligibleVehicleTypes.stream()
                     .map(type -> "?")
@@ -246,10 +256,30 @@ public class TripService {
                     }
                 }
             }
-            return loadTrips(connection, tripIds);
+            return loadTrips(connection, tripIds, false);
         } catch (SQLException exception) {
             throw databaseFailure(exception);
         }
+    }
+
+    @Transactional
+    public Set<String> availableOrderVehicleTypes(String subject) {
+        long driverId = parseSubject(subject);
+        try (Connection connection = dataSource.getConnection()) {
+            return Set.copyOf(findEligibleOrderVehicleTypes(connection, driverId).stream()
+                    .map(TripService::frontendVehicleType)
+                    .toList());
+        } catch (SQLException exception) {
+            throw databaseFailure(exception);
+        }
+    }
+
+    private List<String> findEligibleOrderVehicleTypes(Connection connection, long driverId) throws SQLException {
+        List<String> vehicleTypes = driverEligibilityService.findEligibleVehicleTypes(connection, driverId, true);
+        if (vehicleTypes.isEmpty()) {
+            throw driverNotEligible();
+        }
+        return vehicleTypes;
     }
 
     @Transactional
@@ -376,42 +406,58 @@ public class TripService {
     }
 
     private List<TripResponses.Trip> loadTrips(Connection connection, List<Long> tripIds) throws SQLException {
+        return loadTrips(connection, tripIds, true);
+    }
+
+    private List<TripResponses.Trip> loadTrips(
+            Connection connection,
+            List<Long> tripIds,
+            boolean includeCustomerDetails) throws SQLException {
         List<TripResponses.Trip> trips = new ArrayList<>();
         for (long id : tripIds) {
-            trips.add(loadTrip(connection, id));
+            trips.add(loadTrip(connection, id, includeCustomerDetails));
         }
         return List.copyOf(trips);
     }
 
     private TripResponses.Trip loadTrip(Connection connection, long tripId) throws SQLException {
-        return loadTrip(connection, tripId, null, null);
+        return loadTrip(connection, tripId, true);
     }
 
     private TripResponses.Trip loadTrip(
             Connection connection,
             long tripId,
-            BigDecimal calculatedDistance,
-            Integer calculatedDuration) throws SQLException {
+            boolean includeCustomerDetails) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT id, vehicle_type, pickup_address, pickup_latitude, pickup_longitude, "
-                        + "dropoff_address, dropoff_latitude, dropoff_longitude, status, estimated_fare, "
-                        + "final_fare, currency_code, requested_at, accepted_at, started_at, completed_at, "
-                        + "cancelled_at, created_at, updated_at FROM trips WHERE id = ?")) {
+                "SELECT t.id, t.vehicle_type, t.pickup_address, t.pickup_latitude, t.pickup_longitude, "
+                        + "t.dropoff_address, t.dropoff_latitude, t.dropoff_longitude, t.status, t.estimated_fare, "
+                        + "t.trip_notes, t.final_fare, t.currency_code, t.route_distance_meters, "
+                        + "t.estimated_duration_seconds, t.route_geometry, t.routing_provider, "
+                        + "t.fare_config_version, t.requested_at, t.accepted_at, t.started_at, "
+                        + "t.completed_at, t.cancelled_at, t.created_at, t.updated_at, "
+                        + "rider.id AS customer_id, rider.full_name AS customer_name, "
+                        + "rider.phone_e164 AS customer_phone, "
+                        + "u.full_name AS driver_name, u.phone_e164 AS driver_phone, "
+                        + "v.model AS vehicle_model, v.plate_normalized AS vehicle_plate "
+                        + "FROM trips t "
+                        + "LEFT JOIN users rider ON rider.id = t.rider_user_id "
+                        + "LEFT JOIN users u ON u.id = t.driver_user_id "
+                        + "LEFT JOIN driver_vehicles v ON v.id = t.vehicle_id "
+                        + "WHERE t.id = ?")) {
             statement.setLong(1, tripId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
                     throw tripNotFound();
                 }
-                BigDecimal distance = calculatedDistance != null
-                        ? calculatedDistance
-                        : estimateDistance(
-                                result.getBigDecimal("pickup_latitude"),
-                                result.getBigDecimal("pickup_longitude"),
-                                result.getBigDecimal("dropoff_latitude"),
-                                result.getBigDecimal("dropoff_longitude"));
-                int duration = calculatedDuration != null
-                        ? calculatedDuration
-                        : estimateDuration(distance, result.getString("vehicle_type"));
+                Long distanceMeters = result.getObject("route_distance_meters", Long.class);
+                Integer durationSeconds = result.getObject("estimated_duration_seconds", Integer.class);
+                BigDecimal distanceKm = distanceMeters == null
+                        ? null
+                        : BigDecimal.valueOf(distanceMeters).divide(BigDecimal.valueOf(1000), 3,
+                                java.math.RoundingMode.HALF_UP);
+                Integer durationMinutes = durationSeconds == null
+                        ? null
+                        : (durationSeconds + 59) / 60;
                 return new TripResponses.Trip(
                         Long.toString(result.getLong("id")),
                         frontendStatus(result.getString("status")),
@@ -426,9 +472,15 @@ public class TripService {
                                 result.getString("dropoff_address"),
                                 result.getBigDecimal("dropoff_latitude"),
                                 result.getBigDecimal("dropoff_longitude")),
-                        distance,
-                        duration,
+                        result.getString("trip_notes"),
+                        distanceKm,
+                        distanceMeters,
+                        durationMinutes,
+                        durationSeconds,
                         result.getBigDecimal("estimated_fare"),
+                        result.getString("routing_provider"),
+                        result.getString("route_geometry"),
+                        result.getString("fare_config_version"),
                         result.getBigDecimal("final_fare"),
                         result.getString("currency_code"),
                         loadHistory(connection, tripId),
@@ -437,7 +489,14 @@ public class TripService {
                         instant(result, "accepted_at"),
                         instant(result, "started_at"),
                         instant(result, "completed_at"),
-                        instant(result, "cancelled_at"));
+                        instant(result, "cancelled_at"),
+                        includeCustomerDetails ? Long.toString(result.getLong("customer_id")) : null,
+                        includeCustomerDetails ? result.getString("customer_name") : null,
+                        includeCustomerDetails ? result.getString("customer_phone") : null,
+                        result.getString("driver_name"),
+                        result.getString("driver_phone"),
+                        result.getString("vehicle_model"),
+                        result.getString("vehicle_plate"));
             }
         }
     }
@@ -614,43 +673,6 @@ public class TripService {
         }
     }
 
-    private static BigDecimal estimateDistance(
-            BigDecimal fromLatitude,
-            BigDecimal fromLongitude,
-            BigDecimal toLatitude,
-            BigDecimal toLongitude) {
-        double fromLat = Math.toRadians(fromLatitude.doubleValue());
-        double toLat = Math.toRadians(toLatitude.doubleValue());
-        double deltaLat = toLat - fromLat;
-        double deltaLon = Math.toRadians(toLongitude.doubleValue() - fromLongitude.doubleValue());
-        double a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2)
-                + Math.cos(fromLat) * Math.cos(toLat)
-                        * Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
-        double straightDistance = EARTH_RADIUS_KM.doubleValue()
-                * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        double roadDistance = Math.max(MIN_DISTANCE_KM.doubleValue(), straightDistance * ROAD_FACTOR.doubleValue());
-        return BigDecimal.valueOf(roadDistance).setScale(1, RoundingMode.HALF_UP);
-    }
-
-    private static BigDecimal calculateFare(BigDecimal distance, String vehicleType) {
-        BigDecimal baseFare = "motorcycle".equals(vehicleType) ? MOTOR_BASE_FARE : CAR_BASE_FARE;
-        BigDecimal ratePerKm = "motorcycle".equals(vehicleType) ? MOTOR_RATE_PER_KM : CAR_RATE_PER_KM;
-        if (distance.compareTo(BASE_DISTANCE_KM) <= 0) {
-            return baseFare.setScale(2);
-        }
-        BigDecimal rawFare = baseFare.add(distance.subtract(BASE_DISTANCE_KM).multiply(ratePerKm));
-        return rawFare.divide(HALF_THOUSAND, 0, RoundingMode.CEILING)
-                .multiply(HALF_THOUSAND)
-                .setScale(2);
-    }
-
-    private static int estimateDuration(BigDecimal distance, String vehicleType) {
-        int averageSpeed = "motorcycle".equals(vehicleType) ? 25 : 18;
-        int bufferMinutes = "motorcycle".equals(vehicleType) ? 3 : 5;
-        int minutes = (int) Math.round(distance.doubleValue() / averageSpeed * 60) + bufferMinutes;
-        return Math.max(5, minutes);
-    }
-
     private static String normalizeVehicleType(String vehicleType) {
         return switch (vehicleType.trim().toLowerCase(Locale.ROOT)) {
             case "motor", "motorcycle" -> "motorcycle";
@@ -701,7 +723,12 @@ public class TripService {
     }
 
     private static WebApplicationException databaseFailure(SQLException exception) {
-        LOG.error("Trip persistence operation failed", exception);
+        return databaseFailure("persistence", exception);
+    }
+
+    private static WebApplicationException databaseFailure(String operation, SQLException exception) {
+        LOG.errorf(exception, "Trip %s persistence failed (SQLSTATE=%s, vendorCode=%d)",
+                operation, exception.getSQLState(), exception.getErrorCode());
         return new WebApplicationException(
                 Response.status(Response.Status.INTERNAL_SERVER_ERROR)
                         .entity(new TripResponses.Error("Trip operation could not be completed",

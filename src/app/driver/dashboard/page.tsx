@@ -115,14 +115,14 @@ export default function DriverDashboardPage() {
 
   const handleAcceptRide = async (bookingId: string) => {
     if (!isOnline) {
-      showToast("Aktifkan status ONLINE terlebih dahulu untuk menerima order.", "error");
+      showToast("Aktifkan status tersedia terlebih dahulu untuk menerima pesanan.", "error");
       return;
     }
 
     setIsAcceptingId(bookingId);
     try {
       const accepted = await bookingsApi.accept(bookingId);
-      showToast(`Pesanan ${accepted.id} berhasil diterima! Segera jemput penumpang.`, "success");
+      showToast(`Pesanan ${accepted.id} berhasil diterima. Silakan menuju titik jemput.`, "success");
       router.push("/driver/trips/active");
     } catch (error) {
       showToast(
@@ -212,7 +212,7 @@ export default function DriverDashboardPage() {
           <SurfaceCard className="p-4 flex flex-col justify-between">
             <div className="flex items-center justify-between text-slate-400 mb-2">
               <span className="text-[11px] font-bold uppercase tracking-wider">
-                Tarikan Hari Ini
+                Perjalanan Hari Ini
               </span>
               <div className="w-7 h-7 rounded-full bg-blue-50 text-rf-blue flex items-center justify-center border border-blue-200 shadow-sm">
                 <CheckCircle className="w-3.5 h-3.5" />
@@ -220,10 +220,10 @@ export default function DriverDashboardPage() {
             </div>
             <div>
               <div className="text-xl sm:text-2xl font-black text-rf-navy">
-                {statistics ? `${statistics.todayTrips} Trip` : "—"}
+                {statistics ? `${statistics.todayTrips} perjalanan` : "—"}
               </div>
               <p className="text-[10px] text-slate-500 font-medium mt-1">
-                Total Selesai: {statistics?.completedTrips ?? "—"}
+                Perjalanan selesai: {statistics?.completedTrips ?? "—"}
               </p>
             </div>
           </SurfaceCard>
@@ -298,7 +298,7 @@ export default function DriverDashboardPage() {
                 <div className="w-3 h-3 rounded-full bg-emerald-400 animate-ping shrink-0" />
                 <div>
                   <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider">
-                    Tarikan Sedang Berjalan
+                    Perjalanan Aktif
                   </span>
                   <h3 className="text-base font-bold text-white">
                     Order ID: {activeTrip.id}
@@ -367,7 +367,7 @@ export default function DriverDashboardPage() {
               href="/driver/orders"
               className="text-xs font-bold text-rf-blue hover:underline"
             >
-              Lihat Semua Radar Order
+              Lihat semua pesanan
             </Link>
           </div>
 
@@ -476,7 +476,9 @@ export default function DriverDashboardPage() {
                   {/* Accept Button */}
                   <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
                     <span className="text-xs text-slate-500 font-medium">
-                      Estimasi jarak: {req.estimatedDistanceKm} km
+                      Estimasi jarak: {req.estimatedDistanceKm === null
+                        ? "Belum tersedia"
+                        : `${req.estimatedDistanceKm.toFixed(1)} km`}
                     </span>
                     <TactileButton
                       variant="primary"

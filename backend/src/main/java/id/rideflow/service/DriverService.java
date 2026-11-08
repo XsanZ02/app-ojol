@@ -8,6 +8,7 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
+import org.postgresql.util.PSQLException;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
@@ -302,6 +303,9 @@ public class DriverService {
             }
         } catch (SQLException exception) {
             if ("23505".equals(exception.getSQLState())) {
+                if (isConstraintViolation(exception, "driver_vehicles_plate_uq")) {
+                    throw vehiclePlateConflict();
+                }
                 throw error(Response.Status.CONFLICT, "Vehicle could not be registered", "vehicle_conflict");
             }
             if ("23503".equals(exception.getSQLState())) {
@@ -364,6 +368,9 @@ public class DriverService {
                     "Only pending or rejected vehicles can be edited", "vehicle_not_editable");
         } catch (SQLException exception) {
             if ("23505".equals(exception.getSQLState()) || "23503".equals(exception.getSQLState())) {
+                if (isConstraintViolation(exception, "driver_vehicles_plate_uq")) {
+                    throw vehiclePlateConflict();
+                }
                 throw error(Response.Status.CONFLICT, "Vehicle could not be updated", "vehicle_conflict");
             }
             if ("23514".equals(exception.getSQLState())) {
@@ -569,6 +576,24 @@ public class DriverService {
 
     private static WebApplicationException invalidVehicle() {
         return error(Response.Status.BAD_REQUEST, "Vehicle data is invalid", "invalid_vehicle");
+    }
+
+    private static WebApplicationException vehiclePlateConflict() {
+        return error(
+                Response.Status.CONFLICT,
+                "Nomor plat ini sudah terdaftar. Periksa kembali plat kendaraan yang dimasukkan.",
+                "vehicle_plate_conflict");
+    }
+
+    private static boolean isConstraintViolation(SQLException exception, String constraintName) {
+        for (SQLException current = exception; current != null; current = current.getNextException()) {
+            if (current instanceof PSQLException postgresException
+                    && postgresException.getServerErrorMessage() != null
+                    && constraintName.equals(postgresException.getServerErrorMessage().getConstraint())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static WebApplicationException invalidProfile() {
